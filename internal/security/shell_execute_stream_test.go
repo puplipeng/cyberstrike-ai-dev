@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,9 +47,17 @@ func TestEinoStreamingShell_StreamsStderrBeforeStdoutEOF(t *testing.T) {
 
 func TestEinoStreamingShell_SudoFailsFast(t *testing.T) {
 	requirePOSIXShell(t)
+	binDir := t.TempDir()
+	fakeSudo := filepath.Join(binDir, "sudo")
+	if err := os.WriteFile(fakeSudo, []byte("#!/bin/sh\nprintf 'sudo: a password is required\\n' >&2\nIFS= read -r password\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	shell := NewEinoStreamingShell()
 	cmd := PrepareNonInteractiveShellCommand("sudo whoami && sudo cat /etc/os-release")
-	sr, err := shell.ExecuteStreaming(context.Background(), &filesystem.ExecuteRequest{Command: cmd})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	sr, err := shell.ExecuteStreaming(ctx, &filesystem.ExecuteRequest{Command: cmd})
 	if err != nil {
 		t.Fatalf("ExecuteStreaming: %v", err)
 	}
@@ -67,6 +77,9 @@ func TestEinoStreamingShell_SudoFailsFast(t *testing.T) {
 			continue
 		}
 		got.WriteString(resp.Output)
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("sudo command did not fail before the deadline; output=%q", got.String())
 	}
 	if time.Since(start) > 5*time.Second {
 		t.Fatalf("sudo should fail quickly, took %v output=%q", time.Since(start), got.String())

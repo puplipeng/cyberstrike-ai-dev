@@ -39,11 +39,11 @@ func normalizeHitlDecidedBy(v string) string {
 }
 
 func (m *HITLManager) migrateHitlSchemaColumns() {
-	_, _ = m.db.Exec(`ALTER TABLE hitl_interrupts ADD COLUMN decided_by TEXT NOT NULL DEFAULT 'human'`)
-	_, _ = m.db.Exec(`ALTER TABLE hitl_interrupts ADD COLUMN reviewer TEXT NOT NULL DEFAULT 'human'`)
+	_, _ = m.db.Exec(`ALTER TABLE hitl_interrupts ADD COLUMN IF NOT EXISTS decided_by TEXT NOT NULL DEFAULT 'human'`)
+	_, _ = m.db.Exec(`ALTER TABLE hitl_interrupts ADD COLUMN IF NOT EXISTS reviewer TEXT NOT NULL DEFAULT 'human'`)
 	_, _ = m.db.Exec(`UPDATE hitl_interrupts SET reviewer='audit_agent'
 		WHERE COALESCE(decided_by, '') IN ('audit_agent', 'agent', 'ai')`)
-	_, _ = m.db.Exec(`ALTER TABLE hitl_conversation_configs ADD COLUMN reviewer TEXT NOT NULL DEFAULT 'human'`)
+	_, _ = m.db.Exec(`ALTER TABLE hitl_conversation_configs ADD COLUMN IF NOT EXISTS reviewer TEXT NOT NULL DEFAULT 'human'`)
 }
 
 func hitlInterruptRowToMap(

@@ -46,10 +46,8 @@ func TestEinoTaskBudgetSurvivesHandlerContinuation(t *testing.T) {
 			cfg := config.AgentConfig{MaxTaskTokens: 1000}
 			baseCtx, cancelWithCause := newEinoTaskBaseContext(requestCtx, cfg)
 			taskCtx, timeoutCancel := context.WithTimeout(baseCtx, time.Minute)
-			defer func() {
-				cancelWithCause(nil)
-				timeoutCancel()
-			}()
+			defer cancelWithCause(nil)
+			defer timeoutCancel()
 			tracker := modelbudget.FromContext(baseCtx)
 			h := &AgentHandler{tasks: &AgentTaskManager{tasks: make(map[string]*AgentTask)}}
 			if _, err := h.tasks.StartTask(mode, "test", cancelWithCause); err != nil {
@@ -69,12 +67,18 @@ func TestEinoTaskBudgetSurvivesHandlerContinuation(t *testing.T) {
 			}
 			switch mode {
 			case "sse_auto_continue":
-				baseCtx, cancelWithCause, taskCtx, timeoutCancel = h.rebindEinoRunningTask(taskCtx, mode, timeoutCancel)
+				nextBaseCtx, nextCancel, nextTaskCtx, nextTimeoutCancel := h.rebindEinoRunningTask(taskCtx, mode, timeoutCancel)
+				defer nextCancel(nil)
+				defer nextTimeoutCancel()
+				baseCtx, taskCtx = nextBaseCtx, nextTaskCtx
 			case "sse_interrupt_fallback":
 				cancelWithCause(multiagent.ErrInterruptContinue)
 				timeoutCancel()
-				baseCtx, cancelWithCause = context.WithCancelCause(detachedAgentContext(baseCtx))
-				taskCtx, timeoutCancel = context.WithTimeout(baseCtx, time.Minute)
+				nextBaseCtx, nextCancel := context.WithCancelCause(detachedAgentContext(baseCtx))
+				nextTaskCtx, nextTimeoutCancel := context.WithTimeout(nextBaseCtx, time.Minute)
+				defer nextCancel(nil)
+				defer nextTimeoutCancel()
+				baseCtx, taskCtx = nextBaseCtx, nextTaskCtx
 			}
 			if taskCtx.Err() != nil || modelbudget.FromContext(taskCtx) != tracker || modelbudget.FromContext(baseCtx) != tracker {
 				t.Fatal("continuation lost the budget tracker or inherited cancellation")

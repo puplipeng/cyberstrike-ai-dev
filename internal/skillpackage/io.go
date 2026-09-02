@@ -74,7 +74,10 @@ func ListPackageFiles(skillsRoot, skillID string) ([]PackageFileInfo, error) {
 		if len(out) >= maxPackageFiles {
 			return fmt.Errorf("skill package exceeds %d files", maxPackageFiles)
 		}
-		fi, err := d.Info()
+		// Use the directory descriptor instead of DirEntry.Info. On Unix the
+		// latter falls back to a path-based lstat, which can escape the Root's
+		// stable descriptor semantics when the package path is renamed.
+		fi, err := root.Lstat(filepath.FromSlash(rel))
 		if err != nil {
 			return err
 		}

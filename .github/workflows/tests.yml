@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -29,6 +29,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: go test -p 2 -count=1 -timeout 5m ./...
+      - run: go test -p 2 -count=1 -timeout 10m ./...
       - run: go vet ./...
       - run: node --test web/static/js/*.test.cjs

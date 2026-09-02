@@ -439,21 +439,13 @@ func (db *DB) ListWorkflowRunsAwaitingHITLFiltered(conversationID string, limit 
 }
 
 func (db *DB) migrateWorkflowRunsTable() error {
-	cols := []struct{ name, ddl string }{
-		{"pending_hitl_node_id", "ALTER TABLE workflow_runs ADD COLUMN pending_hitl_node_id TEXT"},
-		{"pending_hitl_json", "ALTER TABLE workflow_runs ADD COLUMN pending_hitl_json TEXT"},
+	ddls := []string{
+		"ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS pending_hitl_node_id TEXT",
+		"ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS pending_hitl_json TEXT",
 	}
-	for _, col := range cols {
-		var count int
-		err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('workflow_runs') WHERE name=$1", col.name).Scan(&count)
-		if err != nil || count > 0 {
-			continue
-		}
-		if _, err := db.Exec(col.ddl); err != nil {
-			errMsg := strings.ToLower(err.Error())
-			if !strings.Contains(errMsg, "duplicate column") && !strings.Contains(errMsg, "already exists") {
-				return err
-			}
+	for _, ddl := range ddls {
+		if _, err := db.Exec(ddl); err != nil {
+			return err
 		}
 	}
 	return nil

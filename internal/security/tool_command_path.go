@@ -144,7 +144,7 @@ func resolveToolCommand(command string) (string, bool) {
 }
 
 func preferredManagedPythonCommand(command string) (string, bool) {
-	if !(runtime.GOOS == "windows" && (strings.EqualFold(command, "python") || strings.EqualFold(command, "python3"))) {
+	if !(strings.EqualFold(command, "python") || strings.EqualFold(command, "python3")) {
 		return "", false
 	}
 	root := managedToolRuntimeRoot()
