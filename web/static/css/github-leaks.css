@@ -1,0 +1,87 @@
+#github-leaks-content{display:flex;flex-direction:column;gap:16px;padding:24px}
+#github-leaks-content .ghl-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+#github-leaks-content .ghl-toolbar h2{margin:0;font-size:24px;color:var(--text-primary)}
+#github-leaks-content .ghl-toolbar p{margin:7px 0 0;color:var(--text-secondary);font-size:13px;line-height:1.6}
+#github-leaks-content .ghl-toolbar-actions{display:flex;gap:10px;flex:0 0 auto}
+#github-leaks-content .ghl-runtime{display:flex;flex-wrap:wrap;gap:8px 14px;padding:12px 14px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-primary);font-size:12px;color:var(--text-secondary)}
+#github-leaks-content .ghl-runtime span{overflow-wrap:anywhere}
+#github-leaks-content .ghl-runtime .ghl-runtime-rule{flex-basis:100%;display:flex;align-items:baseline;gap:6px}
+#github-leaks-content .ghl-runtime .ghl-runtime-rule code{padding:3px 6px;border-radius:5px;background:var(--bg-tertiary);color:var(--text-primary);white-space:pre-wrap;overflow-wrap:anywhere}
+#github-leaks-content .ghl-runtime-state{font-weight:600;color:var(--text-primary)}
+#github-leaks-content .ghl-runtime .is-ok{color:var(--success-color,#16a34a)}
+#github-leaks-content .ghl-runtime .is-warning{color:var(--warning-color,#d97706)}
+#github-leaks-content .ghl-runtime .is-error{color:var(--error-color,#dc2626)}
+#github-leaks-content .ghl-stats{display:grid;grid-template-columns:repeat(7,minmax(110px,1fr));gap:10px}
+#github-leaks-content .ghl-stat{display:flex;flex-direction:column;gap:7px;padding:14px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-primary)}
+#github-leaks-content .ghl-stat span{font-size:12px;color:var(--text-secondary)}
+#github-leaks-content .ghl-stat strong{font-size:22px;color:var(--text-primary)}
+#github-leaks-content .ghl-error{padding:11px 13px;border:1px solid var(--error-color,#dc2626);border-radius:8px;color:var(--error-color,#dc2626);background:color-mix(in srgb,var(--error-color,#dc2626) 8%,transparent)}
+#github-leaks-content .ghl-filters{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+#github-leaks-content .ghl-filters input,#github-leaks-content .ghl-filters select{min-height:38px;padding:8px 11px;border:1px solid var(--border-color);border-radius:7px;background:var(--input-bg);color:var(--text-primary)}
+#github-leaks-content .ghl-filters input{flex:1;min-width:240px}
+#github-leaks-content .ghl-filters select{min-width:150px}
+#github-leaks-content .ghl-table-wrap{overflow:auto;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-primary)}
+#github-leaks-content .ghl-table{width:100%;min-width:1050px;border-collapse:collapse;font-size:13px}
+#github-leaks-content .ghl-table th{padding:11px 13px;text-align:left;font-size:12px;font-weight:500;color:var(--text-secondary);background:var(--bg-tertiary)}
+#github-leaks-content .ghl-table td{padding:13px;border-top:1px solid var(--border-color);vertical-align:top;color:var(--text-primary)}
+#github-leaks-content .ghl-table code,#github-leaks-content .ghl-detail-list code{display:block;margin-top:5px;font-size:11px;overflow-wrap:anywhere;color:var(--text-secondary)}
+#github-leaks-content .ghl-location{display:flex;flex-direction:column;gap:5px;color:var(--text-primary);text-decoration:none;overflow-wrap:anywhere}
+#github-leaks-content a.ghl-location:hover strong{text-decoration:underline;color:var(--accent-color)}
+#github-leaks-content .ghl-location small{color:var(--text-secondary);font-size:11px}
+#github-leaks-content .ghl-secret-type{display:block;font-weight:600;overflow-wrap:anywhere}
+#github-leaks-content .ghl-badge{display:inline-block;padding:3px 7px;border-radius:999px;background:var(--bg-tertiary);font-size:11px;white-space:nowrap}
+#github-leaks-content .ghl-status-new{color:var(--warning-color,#d97706);background:color-mix(in srgb,var(--warning-color,#d97706) 12%,transparent)}
+#github-leaks-content .ghl-status-triaged{color:var(--accent-color)}
+#github-leaks-content .ghl-status-false_positive{color:var(--text-secondary)}
+#github-leaks-content .ghl-status-resolved{color:var(--success-color,#16a34a);background:color-mix(in srgb,var(--success-color,#16a34a) 12%,transparent)}
+#github-leaks-content .ghl-empty{margin:0;padding:42px;text-align:center;color:var(--text-secondary)}
+#github-leaks-content .ghl-pagination{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--text-secondary)}
+#github-leaks-content dialog{margin:auto;width:min(820px,92vw);max-height:88vh;overflow:auto;padding:22px;border:1px solid var(--border-color);border-radius:12px;background:var(--bg-primary);color:var(--text-primary);box-shadow:var(--shadow-lg)}
+#github-leaks-content dialog::backdrop{background:rgba(0,0,0,.58)}
+#github-leaks-content dialog header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding-bottom:14px;border-bottom:1px solid var(--border-color)}
+#github-leaks-content dialog header h2{margin:0;font-size:18px;overflow-wrap:anywhere}
+#github-leaks-content .ghl-detail-heading{margin:16px 0 12px}
+#github-leaks-content .ghl-detail-list{display:grid;grid-template-columns:minmax(120px,1fr) 2fr;gap:10px 16px;margin:0;font-size:13px}
+#github-leaks-content .ghl-detail-list dt{color:var(--text-secondary)}
+#github-leaks-content .ghl-detail-list dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#github-leaks-content dialog h3{margin:20px 0 8px;font-size:14px}
+#github-leaks-content .ghl-masked-excerpt{max-height:320px;overflow:auto;margin:0;padding:14px;border-radius:8px;background:var(--bg-tertiary);white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6}
+#github-leaks-content .ghl-detail-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}
+@media(max-width:1200px){#github-leaks-content .ghl-stats{grid-template-columns:repeat(4,minmax(110px,1fr))}}
+@media(max-width:760px){#github-leaks-content{padding:16px}#github-leaks-content .ghl-toolbar{flex-direction:column}#github-leaks-content .ghl-stats{grid-template-columns:repeat(2,minmax(100px,1fr))}#github-leaks-content .ghl-detail-list{grid-template-columns:1fr}#github-leaks-content .ghl-detail-list dt{font-weight:600}#github-leaks-content .ghl-toolbar-actions{width:100%}#github-leaks-content .ghl-toolbar-actions button{flex:1}}
+
+.ghl-settings-rules-section{display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-secondary)}
+.ghl-settings-rules-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.ghl-settings-rules-header>div{display:flex;flex-direction:column;gap:4px}
+.ghl-settings-rules{display:grid;gap:12px}
+.ghl-settings-rules-empty{margin:2px 0;text-align:center}
+.ghl-settings-rule-card{display:grid;grid-template-columns:minmax(180px,.72fr) minmax(280px,1.28fr);gap:12px 16px;padding:14px;border:1px solid var(--border-color);border-radius:9px;background:var(--bg-primary)}
+.ghl-settings-rule-card-header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid var(--border-color)}
+.ghl-settings-rule-number{color:var(--text-primary);font-size:13px}
+.ghl-settings-rule-card-actions,.ghl-settings-rule-enabled{display:flex;align-items:center;gap:10px}
+.ghl-settings-rule-enabled{cursor:pointer;color:var(--text-secondary);font-size:13px}
+.ghl-settings-rule-enabled input{width:16px;height:16px;margin:0;accent-color:var(--accent-color)}
+.ghl-settings-rule-card .form-group textarea{min-height:104px}
+.ghl-settings-query-preview{display:block;padding:7px 9px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
+.ghl-settings-query-preview.error,.ghl-settings-rule-error,.ghl-settings-rules-error{color:var(--error-color,#dc2626)}
+.ghl-settings-rule-error:empty,.ghl-settings-rules-error:empty{display:none}
+.ghl-settings-rules-error{display:block}
+#github-leaks-content .ghl-rule-cell{display:flex;min-width:180px;flex-direction:column;gap:5px}
+#github-leaks-content .ghl-rule-cell strong{font-size:12px;overflow-wrap:anywhere}
+#github-leaks-content .ghl-rule-cell code{margin:0;white-space:pre-wrap}
+#github-leaks-content .ghl-runtime-rules-wrap{flex-basis:100%;display:grid;gap:7px}
+#github-leaks-content .ghl-runtime-rules{display:grid;gap:7px;max-height:min(44vh,420px);margin:0;padding:0 6px 0 0;overflow-y:auto;overscroll-behavior:contain;list-style:none}
+#github-leaks-content .ghl-runtime-rule{display:grid;grid-template-columns:minmax(130px,.35fr) minmax(220px,1fr);align-items:start;gap:8px 12px}
+#github-leaks-content .ghl-runtime-rule-name{display:flex;align-items:center;gap:7px;min-width:0;color:var(--text-primary)}
+#github-leaks-content .ghl-runtime-rule-name strong{overflow-wrap:anywhere}
+#github-leaks-content .ghl-runtime-rule-result{display:grid;gap:5px;min-width:0}
+#github-leaks-content .ghl-runtime-rule-meta{display:flex;flex-wrap:wrap;gap:5px}
+#github-leaks-content .ghl-runtime-rule-error{color:var(--error-color,#dc2626);white-space:pre-wrap;overflow-wrap:anywhere}
+#github-leaks-content .ghl-rule-state{padding:2px 6px;border-radius:999px;background:var(--bg-tertiary);font-size:10px;font-weight:600;white-space:nowrap}
+#github-leaks-content .ghl-rule-state.is-enabled{color:var(--success-color,#16a34a)}
+#github-leaks-content .ghl-rule-state.is-disabled{color:var(--text-secondary)}
+#github-leaks-content .ghl-rule-state.is-success,#github-leaks-content .ghl-rule-state.is-not-modified{color:var(--success-color,#16a34a)}
+#github-leaks-content .ghl-rule-state.is-partial,#github-leaks-content .ghl-rule-state.is-incomplete,#github-leaks-content .ghl-rule-state.is-truncated{color:var(--warning-color,#d97706)}
+#github-leaks-content .ghl-rule-state.is-idle{color:var(--text-secondary)}
+#github-leaks-content .ghl-rule-state.is-error{color:var(--error-color,#dc2626)}
+@media(max-width:760px){.ghl-settings-rules-header,.ghl-settings-rule-card-header{align-items:stretch;flex-direction:column}.ghl-settings-rule-card{grid-template-columns:1fr}.ghl-settings-rule-card-header{grid-column:auto}.ghl-settings-rule-card-actions{justify-content:space-between}#github-leaks-content .ghl-runtime-rule{grid-template-columns:1fr}}

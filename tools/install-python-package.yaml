@@ -1,0 +1,42 @@
+name: "install-python-package"
+command: "python3"
+args:
+  - "-m"
+  - "pip"
+  - "install"
+enabled: true
+short_description: "在平台隔离的 Python 环境中安装依赖"
+description: |
+  在平台管理的隔离 Python 环境中安装依赖。
+
+  **主要功能：**
+  - 安装Python包
+  - 虚拟环境支持
+  - 依赖管理
+
+  **使用场景：**
+  - 环境配置
+  - 依赖安装
+  - 工具安装
+parameters:
+  - name: "package"
+    type: "string"
+    description: "要安装的Python包名"
+    required: true
+    position: 0
+    format: "positional"
+  - name: "additional_args"
+    type: "string"
+    description: |
+      额外的install-python-package参数。用于传递未在参数列表中定义的install-python-package选项。
+
+      **示例值：**
+      - 根据工具特性添加常用参数示例
+
+      **注意事项：**
+      - 多个参数用空格分隔
+      - 确保参数格式正确，避免命令注入
+      - 此参数会直接追加到命令末尾
+    required: false
+    format: "positional"
+    default: ""

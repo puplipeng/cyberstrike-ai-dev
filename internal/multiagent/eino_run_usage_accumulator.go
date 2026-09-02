@@ -1,0 +1,210 @@
+package multiagent
+
+import (
+	"sync"
+
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/summarization"
+	"github.com/cloudwego/eino/schema"
+	"go.uber.org/zap"
+)
+
+type einoRunUsageSummary struct {
+	ModelCalls       int
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	CachedTokens     int
+	ReasoningTokens  int
+}
+
+type einoRunUsageAccumulator struct {
+	mu      sync.Mutex
+	summary einoRunUsageSummary
+	emitted bool
+	// Each generation action is one attempt; phase/attempt numbers alone are
+	// reused by later compactions and by other agents in the same run.
+	seenSummaryAttempts map[any]struct{}
+}
+
+func newEinoRunUsageAccumulator() *einoRunUsageAccumulator {
+	return &einoRunUsageAccumulator{}
+}
+
+func (a *einoRunUsageAccumulator) AddMessage(msg *schema.Message) bool {
+	if msg == nil || msg.ResponseMeta == nil || msg.ResponseMeta.Usage == nil {
+		return false
+	}
+	return a.AddUsage(msg.ResponseMeta.Usage)
+}
+
+func (a *einoRunUsageAccumulator) AddUsage(usage *schema.TokenUsage) bool {
+	if a == nil || usage == nil || tokenUsageEmpty(usage) {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.addUsageLocked(usage)
+	return true
+}
+
+func (a *einoRunUsageAccumulator) addUsageLocked(usage *schema.TokenUsage) {
+	a.summary.ModelCalls++
+	a.summary.PromptTokens += usage.PromptTokens
+	a.summary.CompletionTokens += usage.CompletionTokens
+	a.summary.TotalTokens += usage.TotalTokens
+	a.summary.CachedTokens += usage.PromptTokenDetails.CachedTokens
+	a.summary.ReasoningTokens += usage.CompletionTokensDetails.ReasoningTokens
+}
+
+// ObserveSummaryAction consumes internal compaction events separately from
+// assistant messages. GenerateSummary carries usage even when validation or a
+// provider error caused a retry; Before/After messages are context snapshots and
+// must never be counted as fresh model calls.
+func (a *einoRunUsageAccumulator) ObserveSummaryAction(action *adk.AgentAction) bool {
+	if action == nil {
+		return false
+	}
+	var key any
+	var usage *schema.TokenUsage
+	switch summary := action.CustomizedAction.(type) {
+	case *summarization.CustomizedAction:
+		if summary == nil || summary.Type != summarization.ActionTypeGenerateSummary || summary.GenerateSummary == nil {
+			return true
+		}
+		attempt := summary.GenerateSummary
+		key = attempt
+		if msg := attempt.ModelResponse; msg != nil && msg.ResponseMeta != nil {
+			usage = msg.ResponseMeta.Usage
+		}
+	case *summarization.TypedCustomizedAction[*schema.AgenticMessage]:
+		if summary == nil || summary.Type != summarization.ActionTypeGenerateSummary || summary.GenerateSummary == nil {
+			return true
+		}
+		attempt := summary.GenerateSummary
+		key = attempt
+		if msg := attempt.ModelResponse; msg != nil && msg.ResponseMeta != nil {
+			usage = msg.ResponseMeta.TokenUsage
+		}
+	default:
+		return false
+	}
+	if a == nil || tokenUsageEmpty(usage) {
+		return true
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.seenSummaryAttempts == nil {
+		a.seenSummaryAttempts = make(map[any]struct{})
+	}
+	if _, seen := a.seenSummaryAttempts[key]; seen {
+		return true
+	}
+	a.seenSummaryAttempts[key] = struct{}{}
+	a.addUsageLocked(usage)
+	return true
+}
+
+func (a *einoRunUsageAccumulator) Summary() einoRunUsageSummary {
+	if a == nil {
+		return einoRunUsageSummary{}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.summary
+}
+
+func (a *einoRunUsageAccumulator) EmitOnce(
+	conversationID string,
+	orchestration string,
+	reason string,
+	modelName string,
+	progress func(eventType, message string, data interface{}),
+	logger *zap.Logger,
+) bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	if a.emitted || a.summary.ModelCalls == 0 {
+		a.mu.Unlock()
+		return false
+	}
+	a.emitted = true
+	s := a.summary
+	a.mu.Unlock()
+
+	data := map[string]interface{}{
+		"conversationId":   conversationID,
+		"source":           "eino",
+		"orchestration":    orchestration,
+		"reason":           reason,
+		"model":            modelName,
+		"modelCalls":       s.ModelCalls,
+		"promptTokens":     s.PromptTokens,
+		"completionTokens": s.CompletionTokens,
+		"totalTokens":      s.TotalTokens,
+		"cachedTokens":     s.CachedTokens,
+		"reasoningTokens":  s.ReasoningTokens,
+	}
+	if progress != nil {
+		progress("eino_usage_summary", "Eino token usage summary", data)
+	}
+	if logger != nil {
+		logger.Info("eino token usage summary",
+			zap.String("conversationId", conversationID),
+			zap.String("orchestration", orchestration),
+			zap.String("reason", reason),
+			zap.String("model", modelName),
+			zap.Int("modelCalls", s.ModelCalls),
+			zap.Int("promptTokens", s.PromptTokens),
+			zap.Int("completionTokens", s.CompletionTokens),
+			zap.Int("totalTokens", s.TotalTokens),
+			zap.Int("cachedTokens", s.CachedTokens),
+			zap.Int("reasoningTokens", s.ReasoningTokens),
+		)
+	}
+	return true
+}
+
+func maxEinoTokenUsage(dst *schema.TokenUsage, src *schema.TokenUsage) *schema.TokenUsage {
+	if src == nil {
+		return dst
+	}
+	if dst == nil {
+		return cloneEinoTokenUsage(src)
+	}
+	if src.PromptTokens > dst.PromptTokens {
+		dst.PromptTokens = src.PromptTokens
+	}
+	if src.CompletionTokens > dst.CompletionTokens {
+		dst.CompletionTokens = src.CompletionTokens
+	}
+	if src.TotalTokens > dst.TotalTokens {
+		dst.TotalTokens = src.TotalTokens
+	}
+	if src.PromptTokenDetails.CachedTokens > dst.PromptTokenDetails.CachedTokens {
+		dst.PromptTokenDetails.CachedTokens = src.PromptTokenDetails.CachedTokens
+	}
+	if src.CompletionTokensDetails.ReasoningTokens > dst.CompletionTokensDetails.ReasoningTokens {
+		dst.CompletionTokensDetails.ReasoningTokens = src.CompletionTokensDetails.ReasoningTokens
+	}
+	return dst
+}
+
+func cloneEinoTokenUsage(src *schema.TokenUsage) *schema.TokenUsage {
+	if src == nil {
+		return nil
+	}
+	out := *src
+	return &out
+}
+
+func tokenUsageEmpty(u *schema.TokenUsage) bool {
+	return u == nil ||
+		(u.PromptTokens == 0 &&
+			u.CompletionTokens == 0 &&
+			u.TotalTokens == 0 &&
+			u.PromptTokenDetails.CachedTokens == 0 &&
+			u.CompletionTokensDetails.ReasoningTokens == 0)
+}

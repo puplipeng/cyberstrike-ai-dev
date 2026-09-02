@@ -1,0 +1,38 @@
+name: "hashpump"
+command: "D:/Projects/CyberStrikeAI/work/runtime/security-tools/venvs/pytools/Scripts/python.exe"
+args:
+  - "D:/Projects/CyberStrikeAI/work/runtime/security-tools/bin/hashpump_runner.py"
+enabled: true
+short_description: "哈希长度扩展攻击兼容工具"
+description: |
+  HashPump Windows 兼容封装，当前提供 padding 和扩展消息元数据计算。
+parameters:
+  - name: "signature"
+    type: "string"
+    description: "原始哈希签名"
+    required: true
+    flag: "-s"
+    format: "flag"
+  - name: "data"
+    type: "string"
+    description: "原始数据"
+    required: true
+    flag: "-d"
+    format: "flag"
+  - name: "key_length"
+    type: "int"
+    description: "密钥长度"
+    required: true
+    flag: "-k"
+    format: "flag"
+  - name: "append_data"
+    type: "string"
+    description: "要追加的数据"
+    required: true
+    flag: "-a"
+    format: "flag"
+  - name: "additional_args"
+    type: "string"
+    description: "额外参数"
+    required: false
+    format: "positional"

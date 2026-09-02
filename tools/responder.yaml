@@ -1,0 +1,49 @@
+name: "responder"
+command: "responder"
+enabled: true
+short_description: "LLMNR/NBT-NS/MDNS投毒和凭据收集工具"
+description: |
+  Windows 运行时通过 `responder` 兼容包装器调用 Inveigh，并由包装器负责持续时间控制，避免在本地环境下留下孤儿监听进程。
+parameters:
+  - name: "interface"
+    type: "string"
+    description: "网络接口（兼容参数，Windows 下仅用于记录）"
+    required: false
+    default: "eth0"
+    position: 0
+    format: "positional"
+  - name: "analyze"
+    type: "bool"
+    description: "仅分析模式（兼容 Responder -A，映射到 Inveigh Inspect）"
+    required: false
+    default: false
+    position: 1
+    format: "positional"
+  - name: "wpad"
+    type: "bool"
+    description: "启用兼容的 WPAD/Proxy 捕获模式"
+    required: false
+    default: true
+    position: 2
+    format: "positional"
+  - name: "fingerprint"
+    type: "bool"
+    description: "指纹识别模式（Windows 包装器接受但忽略）"
+    required: false
+    default: false
+    position: 3
+    format: "positional"
+  - name: "duration"
+    type: "int"
+    description: "运行持续时间（秒，0 表示直到手动停止）"
+    required: false
+    default: 300
+    position: 4
+    format: "positional"
+  - name: "additional_args"
+    type: "string"
+    description: "额外的 Inveigh / 兼容参数（直接追加）"
+    required: false
+    default: ""
+    position: 5
+    format: "positional"

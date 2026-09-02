@@ -1,0 +1,67 @@
+name: "naabu"
+command: "naabu"
+args: ["-silent"]
+enabled: true
+short_description: "快速端口探测工具，适合大批量主机的低噪音 TCP 端口摸底"
+description: |
+  Naabu 是 ProjectDiscovery 的端口扫描器，适合先快速摸清开放端口，再把少量目标交给 nmap、httpx 或其他深度工具。
+
+  **推荐用法：**
+  - 单目标：传 `target`
+  - 批量目标：传 `list`
+  - 常见场景：先用 `top_ports` 或 `ports`，再按结果做服务识别
+
+  **注意事项：**
+  - `target` 与 `list` 二选一即可
+  - 大范围扫描时请控制 `rate`
+  - 仅做端口发现，不做复杂服务指纹
+parameters:
+  - name: "target"
+    type: "string"
+    description: "单个目标主机、IP 或域名"
+    required: false
+    flag: "-host"
+    format: "flag"
+  - name: "list"
+    type: "string"
+    description: "目标列表文件路径，每行一个目标"
+    required: false
+    flag: "-list"
+    format: "flag"
+  - name: "ports"
+    type: "string"
+    description: "端口范围，例如 `80,443,8080` 或 `1-1000`"
+    required: false
+    flag: "-p"
+    format: "flag"
+  - name: "top_ports"
+    type: "int"
+    description: "扫描 Top N 端口，例如 100 或 1000"
+    required: false
+    flag: "-top-ports"
+    format: "flag"
+  - name: "rate"
+    type: "int"
+    description: "每秒发送速率，批量场景建议显式限制"
+    required: false
+    flag: "-rate"
+    format: "flag"
+  - name: "verify"
+    type: "bool"
+    description: "对发现的端口做二次校验"
+    required: false
+    flag: "-verify"
+    format: "flag"
+    default: false
+  - name: "silent"
+    type: "bool"
+    description: "静默输出，便于串联到其他工具"
+    required: false
+    flag: "-silent"
+    format: "flag"
+    default: true
+  - name: "additional_args"
+    type: "string"
+    description: "额外的 Naabu 参数"
+    required: false
+    format: "positional"

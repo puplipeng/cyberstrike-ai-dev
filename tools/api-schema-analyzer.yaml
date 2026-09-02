@@ -1,0 +1,20 @@
+name: "api-schema-analyzer"
+command: "spectral"
+args: ["lint"]
+enabled: true
+short_description: "API模式分析工具，识别潜在安全问题"
+description: |
+  Windows 运行时使用本地 `spectral` 兼容包装器，对 OpenAPI/Swagger 做结构校验和基础安全规则检查；GraphQL 当前提供结构加载提示，不执行完整规则集。
+parameters:
+  - name: "schema_url"
+    type: "string"
+    description: "API模式文件或URL（传递给 spectral lint 的目标）"
+    required: true
+    position: 0
+    format: "positional"
+  - name: "additional_args"
+    type: "string"
+    description: |
+      额外的 Spectral 参数，例如 `--ruleset`, `--format`, `--fail-severity` 等。
+    required: false
+    format: "positional"

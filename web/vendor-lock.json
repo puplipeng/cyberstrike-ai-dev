@@ -1,0 +1,172 @@
+{
+  "format": 1,
+  "sources": [
+    {
+      "package": "marked",
+      "version": "15.0.12",
+      "url": "https://registry.npmjs.org/marked/-/marked-15.0.12.tgz",
+      "sha256": "39a847a896af15b2846f927da55d444619ea55a55c236e10333056474b793aaa",
+      "files": [
+        {
+          "member": "package/lib/marked.umd.js",
+          "path": "marked.min.js",
+          "sha256": "d7931d1cd7bf727dd756c871637edcc9e0f8538003b927368400ec1ee47a9dd9"
+        },
+        {
+          "member": "package/LICENSE.md",
+          "path": "licenses/marked-LICENSE.md",
+          "sha256": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c"
+        }
+      ]
+    },
+    {
+      "package": "dompurify",
+      "version": "3.4.14",
+      "url": "https://registry.npmjs.org/dompurify/-/dompurify-3.4.14.tgz",
+      "sha256": "af9969677147123e4bd411529ba1af33954f4064ce32efdf0944f2819105b2eb",
+      "files": [
+        {
+          "member": "package/dist/purify.min.js",
+          "path": "purify.min.js",
+          "sha256": "c2f26ea4fc0d88141c9aa430eb515ac86fce59418ceebd85fa475b87a8d6c3e6"
+        },
+        {
+          "member": "package/LICENSE",
+          "path": "licenses/dompurify-LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "member": "package/LICENSE-MPL",
+          "path": "licenses/dompurify-LICENSE-MPL",
+          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+        }
+      ]
+    },
+    {
+      "package": "cytoscape",
+      "version": "3.34.2",
+      "url": "https://registry.npmjs.org/cytoscape/-/cytoscape-3.34.2.tgz",
+      "sha256": "92e9eeb010d5f16913c0216e5abab6f6b0e7b05ba29d72ed58ff3fdb03226f7a",
+      "files": [
+        {
+          "member": "package/dist/cytoscape.min.js",
+          "path": "cytoscape.min.js",
+          "sha256": "b85c213252b880cbb2d86c10dc537f673560e82494da4330f1ccc18fbcb5f145"
+        },
+        {
+          "member": "package/LICENSE",
+          "path": "licenses/cytoscape-LICENSE",
+          "sha256": "eb319c6e6f233607f71e8e2f450391751883cfc0eeb3ca7ef574c13d1d9c2203"
+        },
+        {
+          "member": "package/license-update.mjs",
+          "path": "licenses/cytoscape-license-update.mjs",
+          "sha256": "4a5a644717fc90d678e8fbbc537a08452d0566726710eef47b196abd6363e635"
+        }
+      ]
+    },
+    {
+      "package": "elkjs",
+      "version": "0.12.0",
+      "url": "https://registry.npmjs.org/elkjs/-/elkjs-0.12.0.tgz",
+      "sha256": "c1d7719723e020b10724e3ccbc935696a2884f1e78d361cdd03766309e8e8e2a",
+      "files": [
+        {
+          "member": "package/lib/elk.bundled.js",
+          "path": "elk.bundled.js",
+          "sha256": "1222e44f953ce7746af23801e723708f8e6f436b8b377a6a5fc7552f34a307b3"
+        },
+        {
+          "member": "package/LICENSE.md",
+          "path": "licenses/elkjs-LICENSE.md",
+          "sha256": "637e81f4a1b6b4079535c499fca05e238cf7605c1ff5b76d60d7da7ce96700c9"
+        }
+      ]
+    },
+    {
+      "package": "i18next",
+      "version": "26.4.0",
+      "url": "https://registry.npmjs.org/i18next/-/i18next-26.4.0.tgz",
+      "sha256": "f518e48c0fcf0cdf16acb8a7fc95482da67cf12776b1d2575ea6ebec653d1f3f",
+      "files": [
+        {
+          "member": "package/dist/umd/i18next.min.js",
+          "path": "i18next.min.js",
+          "sha256": "10e96317f02244bebf0140a7268675ee550426f5dcdd9e30a02d293001c08eb4"
+        },
+        {
+          "member": "package/LICENSE",
+          "path": "licenses/i18next-LICENSE",
+          "sha256": "1cd0a2b02a6cc40ef8ee16310d13eeffdd7b5de4a562fd3ee7c921d8eb54f60a"
+        }
+      ]
+    },
+    {
+      "package": "@xterm/xterm",
+      "version": "5.5.0",
+      "url": "https://registry.npmjs.org/@xterm/xterm/-/xterm-5.5.0.tgz",
+      "sha256": "bd954fa721872170188cc5d7e83e88db3c83c9a18a4e8d24c2783d26491f59d2",
+      "files": [
+        {
+          "member": "package/lib/xterm.js",
+          "path": "xterm.js",
+          "sha256": "1f991ac3b4b283ebf96e60ae23a00a52765dd3a2e46fa6fdda9f1aab032f7495"
+        },
+        {
+          "member": "package/css/xterm.css",
+          "path": "xterm.css",
+          "sha256": "ba8e6985669488981ccf40c0cefe3aba80722cb6c92de7ad628b0bd717faf2b6"
+        },
+        {
+          "member": "package/LICENSE",
+          "path": "licenses/xterm-xterm-LICENSE",
+          "sha256": "b569f629d00f2626a8100df2a1798210535621e42164dfd426a6fe5aac7b0ccd"
+        }
+      ]
+    },
+    {
+      "package": "@xterm/addon-fit",
+      "version": "0.10.0",
+      "url": "https://registry.npmjs.org/@xterm/addon-fit/-/addon-fit-0.10.0.tgz",
+      "sha256": "917ac44972453d5eed52edc1e50260c76398ce48cf2290c2e60671102bba0b33",
+      "files": [
+        {
+          "member": "package/lib/addon-fit.js",
+          "path": "xterm-addon-fit.js",
+          "sha256": "bdaefa370b1bfc42ee88d46fe6072400902a4d4b2d45cd93438dda9b23c97089"
+        },
+        {
+          "member": "package/LICENSE",
+          "path": "licenses/xterm-addon-fit-LICENSE",
+          "sha256": "e256f01188af527e4d06d21d06fbf785ae9c50d4b328bf03cbe0ba7f0aa4228f"
+        }
+      ]
+    },
+    {
+      "package": "xlsx",
+      "version": "0.20.3",
+      "url": "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js",
+      "sha256": "cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41",
+      "format": "file",
+      "files": [
+        {
+          "path": "xlsx.full.min.js",
+          "sha256": "cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41"
+        }
+      ]
+    },
+    {
+      "package": "xlsx-license",
+      "version": "0.20.3",
+      "url": "https://cdn.sheetjs.com/xlsx-0.20.3/package/LICENSE",
+      "sha256": "4d2a38ac35cda06a555c84074a819d413339cd3691b822cae50f8f322fe01f64",
+      "format": "file",
+      "files": [
+        {
+          "path": "licenses/xlsx-LICENSE",
+          "sha256": "4d2a38ac35cda06a555c84074a819d413339cd3691b822cae50f8f322fe01f64"
+        }
+      ]
+    }
+  ]
+}

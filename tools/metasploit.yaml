@@ -1,0 +1,27 @@
+name: "metasploit"
+command: "metasploit"
+enabled: true
+short_description: "Metasploit 兼容封装"
+description: |
+  Windows 兼容封装，仅做模块请求整形与参数回显，不在本地 Windows 运行时执行 msfconsole。
+parameters:
+  - name: "module"
+    type: "string"
+    description: "要使用的 Metasploit 模块路径"
+    required: true
+    position: 0
+    format: "positional"
+  - name: "options"
+    type: "string"
+    description: "模块选项（JSON 对象）"
+    required: false
+    default: "{}"
+    position: 1
+    format: "positional"
+  - name: "additional_args"
+    type: "string"
+    description: "额外参数"
+    required: false
+    default: ""
+    position: 2
+    format: "positional"

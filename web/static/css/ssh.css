@@ -1,0 +1,25 @@
+#ssh-panel {padding:20px;overflow:auto}
+#ssh-panel[hidden],#ssh-panel [hidden],#page-webshell .webshell-page-content[hidden],#page-webshell button[hidden] {display:none!important}
+.ssh-modes,.ssh-toolbar {display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:12px 0}
+.ssh-modes {padding:0 20px}
+.ssh-modes [aria-selected="true"] {border-color:var(--primary-color,#6366f1);color:var(--primary-color,#6366f1);font-weight:700}
+.ssh-layout {display:grid;grid-template-columns:260px minmax(0,1fr);gap:24px}
+#ssh-connections {max-height:70vh;overflow:auto;border-right:1px solid var(--border-color,#ddd);padding-right:12px}
+.ssh-connection {display:flex;flex-direction:column;gap:5px;width:100%;padding:12px;margin-bottom:8px;text-align:left;border:1px solid var(--border-color,#ddd);background:var(--bg-secondary,#f4f5f9);color:var(--text-primary,#222);border-radius:8px;cursor:pointer;overflow-wrap:anywhere}
+.ssh-connection.selected {border-color:var(--primary-color,#6366f1);box-shadow:inset 3px 0 var(--primary-color,#6366f1)}
+.ssh-connection span,.ssh-note {font-size:13px;color:var(--text-secondary,#687083);line-height:1.6}
+.ssh-error {color:var(--danger-color,#dc2626);white-space:pre-wrap}
+.ssh-workspace {min-width:0}
+.ssh-workspace code {overflow-wrap:anywhere}
+.ssh-trust {border:1px solid #d69b2d;background:var(--bg-secondary,#fff8e6);padding:16px;border-radius:8px;margin:14px 0}
+.ssh-trust code {display:block;margin:12px 0;user-select:all}
+.ssh-terminal {height:380px;padding:12px;background:#111827;border-radius:8px;margin:18px 0;overflow:hidden}
+.ssh-fields {display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ssh-fields label,.ssh-toolbar label {display:flex;flex-direction:column;gap:6px}
+.ssh-fields input,.ssh-fields select,.ssh-fields textarea,.ssh-toolbar input {border:1px solid var(--border-color,#d1d5db);border-radius:6px;background:var(--bg-primary,#fff);color:var(--text-primary,#222);padding:9px;width:100%;box-sizing:border-box}
+#ssh-key-field {grid-column:1/-1}
+#ssh-editor {width:min(640px,92vw);max-height:90vh;overflow:auto;border:1px solid var(--border-color,#ddd);border-radius:12px;padding:24px;background:var(--bg-primary,#fff);color:var(--text-primary,#222)}
+#ssh-editor::backdrop {background:rgba(0,0,0,.45)}
+.ssh-files {width:100%;border-collapse:collapse;margin-top:12px}
+.ssh-files td,.ssh-files th {padding:9px;border-bottom:1px solid var(--border-color,#ddd);text-align:left;overflow-wrap:anywhere}
+@media(max-width:800px) {.ssh-layout{grid-template-columns:1fr}#ssh-connections{max-height:200px;border-right:0}.ssh-fields{grid-template-columns:1fr}}

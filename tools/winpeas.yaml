@@ -1,0 +1,20 @@
+name: "winpeas"
+command: "winpeas"
+enabled: true
+short_description: "Windows 本地权限提升枚举工具，汇总服务、权限、凭据与错配线索"
+description: |
+  WinPEAS 用于 Windows 主机提权前的本地枚举，适合快速收集服务错配、危险权限、可写路径、注册表配置和常见凭据线索。
+
+  **推荐用法：**
+  - 不传参数直接执行，先拿全量概览
+  - 需要压缩输出或指定模式时，通过 `additional_args` 传入原生参数
+
+  **注意事项：**
+  - 输出量通常很大，建议结合平台保存结果
+  - 某些检查会触发安全产品告警，请按场景控制
+parameters:
+  - name: "additional_args"
+    type: "string"
+    description: "额外的 WinPEAS 参数，原样追加给程序"
+    required: false
+    format: "positional"

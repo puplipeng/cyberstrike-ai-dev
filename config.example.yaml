@@ -1,0 +1,79 @@
+# CyberStrikeAI Dev 配置模板 —— 复制为 config.yaml 后填写
+version: "v1.7.17-dev"
+server:
+  host: 0.0.0.0
+  port: 8080
+  # Empty by default: ignore client-supplied forwarding headers. With a reverse
+  # proxy, list only its IP/CIDR and configure it to overwrite forwarding headers.
+  trusted_proxies: []
+  tls_enabled: true
+  tls_auto_self_sign: true
+auth:
+  session_duration_hours: 12
+log:
+  level: info
+  output: stdout
+database:
+  dsn: postgres://cyberstrike:<你的密码>@127.0.0.1:5433/cyberstrike?sslmode=disable
+  knowledge_dsn: ""
+  local_timezone: Asia/Shanghai
+knowledge:
+  enabled: true
+  base_path: knowledge_base
+  embedding:
+    model: bge-m3
+    base_url: http://127.0.0.1:11435/v1
+    api_key: ollama
+    provider: ""
+  retrieval:
+    top_k: 5
+    multi_query:
+      enabled: false
+      max_queries: 4
+    post_retrieve:
+      max_context_tokens: 4096
+ai:
+  default_channel: default
+  channels:
+    default:
+      name: Default
+      provider: openai
+      api_key: <你的 AI API Key>
+      base_url: https://api.deepseek.com/v1
+      model: deepseek-chat
+security:
+  tools_dir: tools
+# 角色/Agent 配置目录（缺失时 /api/roles 返回空、聊天角色选择器不可用）
+agents_dir: agents
+roles_dir: roles
+agent:
+  max_iterations: 30
+  # Per-run cumulative input + output budget; 0=default 1M, -1=unlimited.
+  max_task_tokens: 1000000
+# GitHub 公开代码中的疑似凭据暴露监控。Token 建议使用专用只读凭据；也可通过 GITHUB_TOKEN 注入。
+# fingerprint_key 是独立 HMAC 密钥，可通过 GITHUB_LEAK_FINGERPRINT_KEY 注入；建议使用随机的 hex:<64个十六进制字符> 并保持稳定，
+# 这样轮换 GitHub PAT 时同一泄露值仍会得到相同指纹。未配置时仅为兼容旧版才回退到 token 派生。
+# 本地 detector 仅对明确赋值字段及可信值形态生成候选；普通 password/token 文本、placeholder 和变量引用会被排除。
+# client_id 仅可作为检索锚点，不会单独作为泄露 finding。结果只保存固定脱敏类型标记和不可逆 HMAC 指纹，平台不会验证发现的凭据。
+github_leak_monitor:
+  enabled: false
+  token: ""
+  fingerprint_key: ""
+  keywords: [] # 旧版单规则；仅 rules 为空时映射为名为 legacy 的规则
+  rules: []
+  # rules:
+  #   - enabled: true
+  #     name: example-corp-clientid
+  #     keywords: ["vendor.example", "clientid"]
+  #   - enabled: true
+  #     name: example-corp-accesskey
+  #     keywords: ["vendor.example", "ACCESSKEY"]
+  interval_seconds: 7200 # 每轮串行执行各启用规则，默认每 2 小时；相邻请求内部固定至少 60 秒
+  request_timeout_seconds: 45
+  per_page: 30
+multi_agent:
+  enabled: true
+  eino_middleware:
+    tool_search_enable: true
+    reduction_enable: true
+    tool_search_always_visible_tools: []

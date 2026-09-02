@@ -1,0 +1,20 @@
+name: "inveigh"
+command: "inveigh"
+enabled: true
+short_description: "Windows 原生 LLMNR/NBNS/mDNS 投毒与凭据捕获工具"
+description: |
+  Inveigh 是 Windows 环境下对 Responder 的直接替代，适合在本地或跳板 Windows 主机上做 LLMNR、NBNS、mDNS 相关的凭据捕获与中继前置工作。
+
+  **推荐用法：**
+  - 根据当前网络环境显式传入原生参数
+  - 与 hashcat、ntlmrelayx、BloodHound 等结果联动
+
+  **注意事项：**
+  - 该工具参数较多，平台当前保留原生参数透传
+  - 使用前请确认所处网段和速率控制要求
+parameters:
+  - name: "additional_args"
+    type: "string"
+    description: "额外的 Inveigh 原生参数，原样追加给程序"
+    required: false
+    format: "positional"

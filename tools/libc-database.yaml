@@ -1,0 +1,36 @@
+name: "libc-database"
+command: "python3"
+args:
+  - "D:/Projects/CyberStrikeAI/work/runtime/security-tools/bin/libc_database_runner.py"
+enabled: true
+short_description: "libc 本地符号检查工具"
+description: |
+  Windows 兼容封装，支持对本地 libc 文件执行 dump 和有限 find。
+parameters:
+  - name: "action"
+    type: "string"
+    description: "要执行的操作（find, dump, download）"
+    required: true
+    position: 0
+    format: "positional"
+  - name: "symbols"
+    type: "string"
+    description: "符号和偏移（格式：symbol1:offset1 symbol2:offset2）"
+    required: false
+    default: ""
+    position: 1
+    format: "positional"
+  - name: "libc_id"
+    type: "string"
+    description: "libc 文件路径或搜索目录"
+    required: false
+    default: ""
+    position: 2
+    format: "positional"
+  - name: "additional_args"
+    type: "string"
+    description: "额外参数"
+    required: false
+    default: ""
+    position: 3
+    format: "positional"
