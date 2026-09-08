@@ -373,6 +373,7 @@ const PAGE_PERMISSION_MAP = {
     assets: 'asset:read',
     'asset-overview': 'asset:read',
     'asset-library': 'asset:read',
+    'asset-monitor': 'asset:read',
     tasks: 'tasks:read',
     workflows: 'workflow:read',
     projects: 'project:read',
@@ -461,21 +462,20 @@ function requirePermission(permission, customMessage) {
 
 function permissionAllowedForElement(el) {
     if (!el) return true;
+    const allOf = el.getAttribute('data-require-permissions');
     const anyOf = el.getAttribute('data-require-permission-any');
     const permission = el.getAttribute('data-require-permission');
-    if (anyOf) {
-        return hasAnyPermission(anyOf.split(/[\s,|]+/).map((item) => item.trim()).filter(Boolean));
-    }
-    if (permission) {
-        return hasPermission(permission);
-    }
+    if (allOf && !allOf.split(/[\s,|]+/).map((item) => item.trim()).filter(Boolean).every(hasPermission)) return false;
+    if (anyOf && !hasAnyPermission(anyOf.split(/[\s,|]+/).map((item) => item.trim()).filter(Boolean))) return false;
+    if (permission && !hasPermission(permission)) return false;
     return true;
 }
 
 function applyPermissionElement(el) {
+    const allOf = el.getAttribute('data-require-permissions');
     const anyOf = el.getAttribute('data-require-permission-any');
     const permission = el.getAttribute('data-require-permission');
-    if (!anyOf && !permission) return;
+    if (!allOf && !anyOf && !permission) return;
     const allowed = permissionAllowedForElement(el);
     el.hidden = !allowed;
     el.classList.toggle('rbac-permission-denied', !allowed);
@@ -493,7 +493,7 @@ function installPermissionClickGuard() {
     permissionClickGuardInstalled = true;
     document.addEventListener('click', (event) => {
         const target = event.target instanceof Element
-            ? event.target.closest('[data-require-permission], [data-require-permission-any]')
+            ? event.target.closest('[data-require-permission], [data-require-permission-any], [data-require-permissions]')
             : null;
         if (!target || permissionAllowedForElement(target)) return;
         event.preventDefault();
@@ -516,8 +516,8 @@ function applyRBACToUI(root) {
         el.setAttribute('aria-hidden', allowed ? 'false' : 'true');
     });
     const permissionRoot = root instanceof Element ? root : document;
-    permissionRoot.querySelectorAll('[data-require-permission], [data-require-permission-any]').forEach(applyPermissionElement);
-    if (permissionRoot instanceof Element && permissionRoot.matches('[data-require-permission], [data-require-permission-any]')) {
+    permissionRoot.querySelectorAll('[data-require-permission], [data-require-permission-any], [data-require-permissions]').forEach(applyPermissionElement);
+    if (permissionRoot instanceof Element && permissionRoot.matches('[data-require-permission], [data-require-permission-any], [data-require-permissions]')) {
         applyPermissionElement(permissionRoot);
     }
     const userAvatar = document.querySelector('.user-avatar-btn');

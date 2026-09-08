@@ -70,14 +70,13 @@ test('changed scripts are cache-busted', () => {
         assert.match(html, new RegExp(`/static/js/${name}\\.js\\?v=20260830-dismiss1`));
     }
     for (const name of ['router', 'auth']) {
-        assert.match(html, new RegExp(`/static/js/${name}\\.js\\?v=20260901-ghleak1`));
+        assert.match(html, new RegExp(`/static/js/${name}\\.js\\?v=20260904-assetmonitor1`));
     }
-    assert.match(html, /\/static\/js\/github-leak-rules\.js\?v=20260902-rules1/);
-    assert.match(html, /\/static\/js\/settings\.js\?v=20260902-ghleak-rules1/);
-    assert.match(html, /\/static\/js\/github-leaks\.js\?v=20260902-partial2/);
-    assert.match(html, /\/static\/css\/github-leaks\.css\?v=20260902-rules2/);
-    for (const name of ['monitor', 'webshell']) {
-        assert.match(html, new RegExp(`/static/js/${name}\\.js\\?v=20260830-codexargs1`));
-    }
-    assert.match(html, /\/static\/js\/chat\.js\?v=20260830-pageview1/);
+    assert.match(html, /\/static\/js\/github-leak-rules\.js\?v=20260902-rules2/);
+    assert.match(html, /\/static\/js\/settings\.js\?v=20260903-budget100m1/);
+    assert.match(html, /\/static\/js\/github-leaks\.js\?v=20260902-lookback1/);
+    assert.match(html, /\/static\/css\/github-leaks\.css\?v=20260902-compact1/);
+    assert.match(html, /\/static\/js\/monitor\.js\?v=20260903-iterlimit1/);
+    assert.match(html, /\/static\/js\/webshell\.js\?v=20260830-codexargs1/);
+    assert.match(html, /\/static\/js\/chat\.js\?v=20260903-iterlimit1/);
 });

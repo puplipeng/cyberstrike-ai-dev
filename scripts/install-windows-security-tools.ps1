@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$RuntimeRoot = 'D:\Projects\CyberStrikeAI\work\runtime\security-tools'
+    [string]$RuntimeRoot = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'runtime\security-tools')
 )
 
 $ErrorActionPreference = 'Stop'

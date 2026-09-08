@@ -3,6 +3,7 @@ package githubleak
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildListWhereSupportsFindingDeepLinks(t *testing.T) {
@@ -22,17 +23,18 @@ func TestValidateCandidateUsesTrustedURLLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := Candidate{
-		Keyword:       rule.Query,
-		Repository:    "owner/repo",
-		Path:          "config.env",
-		BlobSHA:       strings.Repeat("a", 40),
-		Line:          12,
-		SecretType:    "github_token",
-		Confidence:    "likely",
-		Severity:      "critical",
-		Fingerprint:   strings.Repeat("b", 64),
-		MaskedExcerpt: "token=<redacted:github_token>",
-		HTMLURL:       "https://github.com/owner/repo/blob/main/config.env#L12",
+		Keyword:         rule.Query,
+		Repository:      "owner/repo",
+		Path:            "config.env",
+		BlobSHA:         strings.Repeat("a", 40),
+		Line:            12,
+		SecretType:      "github_token",
+		Confidence:      "likely",
+		Severity:        "critical",
+		Fingerprint:     strings.Repeat("b", 64),
+		MaskedExcerpt:   "token=<redacted:github_token>",
+		HTMLURL:         "https://github.com/owner/repo/blob/main/config.env#L12",
+		SourceUpdatedAt: time.Now().UTC(),
 	}
 	if _, err = validateCandidate(base); err != nil {
 		t.Fatalf("valid candidate rejected: %v", err)
@@ -46,6 +48,11 @@ func TestValidateCandidateUsesTrustedURLLine(t *testing.T) {
 	invalidSHA.BlobSHA = strings.Repeat("z", 40)
 	if _, err := validateCandidate(invalidSHA); err == nil {
 		t.Fatal("candidate accepted a non-hex blob SHA")
+	}
+	future := base
+	future.SourceUpdatedAt = time.Now().UTC().Add(24 * time.Hour)
+	if _, err := validateCandidate(future); err == nil {
+		t.Fatal("candidate accepted an untrusted future commit timestamp")
 	}
 }
 

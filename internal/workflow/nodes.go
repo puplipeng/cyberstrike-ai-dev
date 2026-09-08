@@ -184,9 +184,15 @@ func runAgentNode(ctx context.Context, args RunArgs, node graphNode, state *Work
 		)
 	}
 	if err != nil {
-		errText := err.Error()
+		errText := multiagent.EinoRunFailureMessage(result, err)
+		errData := multiagent.EinoClientRunErrorFields(err)
+		errData["mode"] = mode
+		errData["error"] = errText
+		if result != nil {
+			errData["mcpExecutionIds"] = result.MCPExecutionIDs
+		}
 		state.MainIterationOffset += state.SegmentMaxIteration
-		return outputMap(envelope("agent", node.ID, node.Type, "failed", ""), map[string]any{"mode": mode, "error": errText}), false, "failed", errText
+		return outputMap(envelope("agent", node.ID, node.Type, "failed", ""), errData), false, "failed", errText
 	}
 	state.MainIterationOffset += state.SegmentMaxIteration
 	response := ""

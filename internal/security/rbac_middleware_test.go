@@ -36,6 +36,51 @@ func TestSkillLibraryRoutePermissionsAndGlobalMutation(t *testing.T) {
 	}
 }
 
+func TestAssetMonitorRoutePermissions(t *testing.T) {
+	for _, tc := range []struct{ method, path, want string }{
+		{http.MethodGet, "/api/asset-monitors", "asset:read"},
+		{http.MethodGet, "/api/asset-monitors/:id", "asset:read"},
+		{http.MethodGet, "/api/asset-monitors/:id/runs", "asset:read"},
+		{http.MethodGet, "/api/asset-monitors/:id/runs/:runId/assets", "asset:read"},
+		{http.MethodPost, "/api/asset-monitors", "asset:write"},
+		{http.MethodPost, "/api/asset-monitors/:id/run", "asset:write"},
+		{http.MethodPatch, "/api/asset-monitors/:id", "asset:write"},
+		{http.MethodDelete, "/api/asset-monitors/:id", "asset:delete"},
+	} {
+		if got := permissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Fatalf("%s %s: %s, want %s", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestAssetMonitorManualRunRequiresAssetProjectAndProviderPermissions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name        string
+		permissions map[string]bool
+		want        int
+	}{
+		{name: "asset only", permissions: map[string]bool{"asset:write": true}, want: http.StatusForbidden},
+		{name: "asset and project", permissions: map[string]bool{"asset:write": true, "project:write": true}, want: http.StatusForbidden},
+		{name: "all required", permissions: map[string]bool{"asset:write": true, "project:write": true, "fofa:execute": true}, want: http.StatusNoContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(ContextSessionKey, Session{UserID: "operator", Permissions: tc.permissions, Scope: database.RBACScopeAll})
+				c.Next()
+			})
+			router.Use(RBACMiddleware(nil))
+			router.POST("/api/asset-monitors/:id/run", RequirePermission("project:write"), RequirePermission("fofa:execute"), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/asset-monitors/monitor-1/run", nil))
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d", w.Code, tc.want)
+			}
+		})
+	}
+}
+
 func TestRBACMiddlewareUsesMatchedFullPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

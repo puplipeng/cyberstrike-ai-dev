@@ -4462,7 +4462,9 @@ function renderProcessDetails(messageId, processDetails, options) {
         } else if (eventType === 'knowledge_retrieval') {
             itemTitle = '📚 ' + (typeof window.t === 'function' ? window.t('chat.knowledgeRetrieval') : '知识检索');
         } else if (eventType === 'error') {
-            itemTitle = '❌ ' + (typeof window.t === 'function' ? window.t('chat.error') : '错误');
+            itemTitle = data.errorKind === 'iteration_limit'
+                ? (typeof window.t === 'function' ? window.t('chat.iterationLimitReachedTitle') : '⏸️ 达到迭代上限')
+                : ('❌ ' + (typeof window.t === 'function' ? window.t('chat.error') : '错误'));
         } else if (eventType === 'cancelled') {
             itemTitle = '⛔ ' + (typeof window.t === 'function' ? window.t('chat.taskCancelled') : '任务已取消');
         } else if (eventType === 'hitl_interrupt') {

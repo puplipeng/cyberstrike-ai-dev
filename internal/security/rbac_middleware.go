@@ -172,6 +172,8 @@ func permissionForRequest(method, fullPath string) string {
 		return "config:write"
 	case path == "/assets/batch-delete", path == "/assets/merge":
 		return "asset:delete"
+	case strings.HasPrefix(path, "/asset-monitors"):
+		return crudPermission(method, "asset")
 	case strings.HasPrefix(path, "/assets"):
 		return crudPermission(method, "asset")
 	case strings.HasPrefix(path, "/vulnerability-alerts"):

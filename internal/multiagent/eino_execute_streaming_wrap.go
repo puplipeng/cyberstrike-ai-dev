@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -18,15 +19,15 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// prependPythonUnbufferedEnv 为 /bin/sh -c 注入 PYTHONUNBUFFERED=1。
+// prependPythonUnbufferedEnv uses the syntax of the platform's default shell.
 // eino-ext local 对流式 stdout 使用 bufio 按「行」推送；python3 写管道时默认块缓冲，print 长期留在用户态缓冲，
-// 管道里收不到换行，表现为长时间无输出直至超时或退出。若命令里已出现 PYTHONUNBUFFERED 则不再覆盖。
+// 管道里收不到换行，表现为长时间无输出直至超时或退出。先设置默认值；命令中的显式赋值仍可覆盖它。
 func prependPythonUnbufferedEnv(shellCommand string) string {
 	if strings.TrimSpace(shellCommand) == "" {
 		return shellCommand
 	}
-	if strings.Contains(strings.ToUpper(shellCommand), "PYTHONUNBUFFERED") {
-		return shellCommand
+	if runtime.GOOS == "windows" {
+		return "$env:PYTHONUNBUFFERED=1\n" + shellCommand
 	}
 	return "export PYTHONUNBUFFERED=1\n" + shellCommand
 }
@@ -86,7 +87,7 @@ func (w *einoStreamingShellWrap) ExecuteStreaming(ctx context.Context, input *fi
 	userCmd := strings.TrimSpace(req.Command)
 	tid := strings.TrimSpace(compose.GetToolCallID(ctx))
 	agentTag := strings.TrimSpace(w.einoAgentName)
-	if security.IsBackgroundShellCommand(req.Command) && !req.RunInBackendGround {
+	if runtime.GOOS != "windows" && security.IsBackgroundShellCommand(req.Command) && !req.RunInBackendGround {
 		req.RunInBackendGround = true
 	}
 	req.Command = prependPythonUnbufferedEnv(req.Command)

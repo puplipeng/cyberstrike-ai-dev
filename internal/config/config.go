@@ -44,10 +44,22 @@ type Config struct {
 	RolesDir          string                  `yaml:"roles_dir,omitempty" json:"roles_dir,omitempty"`   // 角色配置文件目录（新方式）
 	Roles             map[string]RoleConfig   `yaml:"roles,omitempty" json:"roles,omitempty"`           // 向后兼容：支持在主配置文件中定义角色
 	SkillsDir         string                  `yaml:"skills_dir,omitempty" json:"skills_dir,omitempty"` // Skills配置文件目录
+	ResolvedSkillsDir string                  `yaml:"-" json:"-"`                                       // Runtime-resolved Skills directory; never serialized
 	AgentsDir         string                  `yaml:"agents_dir,omitempty" json:"agents_dir,omitempty"` // 多代理子 Agent Markdown 定义目录（*.md，YAML front matter）
 	MultiAgent        MultiAgentConfig        `yaml:"multi_agent,omitempty" json:"multi_agent,omitempty"`
 	Project           ProjectConfig           `yaml:"project,omitempty" json:"project,omitempty"`
 	Vision            VisionConfig            `yaml:"vision,omitempty" json:"vision,omitempty"`
+}
+
+// EffectiveSkillsDir returns the runtime-resolved Skills directory when available.
+func (c *Config) EffectiveSkillsDir() string {
+	if c == nil {
+		return ""
+	}
+	if resolved := strings.TrimSpace(c.ResolvedSkillsDir); resolved != "" {
+		return resolved
+	}
+	return c.SkillsDir
 }
 
 // SkillLibrary is independent of chat AI and the optional general knowledge base.
@@ -70,8 +82,8 @@ type EnsureLocalConfigResult struct {
 
 const (
 	DefaultMaxCompletionTokens                        = 16384
-	DefaultAgentMaxIterations                         = 30
-	DefaultMaxTaskTokens                              = 1000000
+	DefaultAgentMaxIterations                         = 1000
+	DefaultMaxTaskTokens                              = 100000000
 	DefaultSummarizationUserIntentLedgerMaxRunes      = 96000
 	DefaultSummarizationUserIntentLedgerEntryMaxRunes = 16000
 	DefaultLatestUserMessageMaxRunes                  = 48000
@@ -1107,7 +1119,10 @@ const (
 	DefaultGitHubLeakIntervalSeconds = 7200
 	DefaultGitHubLeakTimeoutSeconds  = 45
 	DefaultGitHubLeakPerPage         = 30
-	MaxGitHubLeakRules               = 32
+	DefaultGitHubLeakLookbackDays    = 365
+	MinGitHubLeakLookbackDays        = 1
+	MaxGitHubLeakLookbackDays        = 3650
+	MaxGitHubLeakRules               = 40
 	MaxGitHubLeakKeywords            = 6
 	MaxGitHubLeakKeywordBytes        = 200
 	MaxGitHubLeakRuleNameBytes       = 100
@@ -1131,6 +1146,7 @@ type GitHubLeakMonitorConfig struct {
 	IntervalSeconds       int                    `yaml:"interval_seconds,omitempty" json:"interval_seconds,omitempty"`
 	RequestTimeoutSeconds int                    `yaml:"request_timeout_seconds,omitempty" json:"request_timeout_seconds,omitempty"`
 	PerPage               int                    `yaml:"per_page,omitempty" json:"per_page,omitempty"`
+	LookbackDays          int                    `yaml:"lookback_days,omitempty" json:"lookback_days,omitempty"`
 }
 
 func (c GitHubLeakMonitorConfig) IntervalSecondsEffective() int {
@@ -1158,6 +1174,13 @@ func (c GitHubLeakMonitorConfig) PerPageEffective() int {
 		return 100
 	}
 	return c.PerPage
+}
+
+func (c GitHubLeakMonitorConfig) LookbackDaysEffective() int {
+	if c.LookbackDays < MinGitHubLeakLookbackDays || c.LookbackDays > MaxGitHubLeakLookbackDays {
+		return DefaultGitHubLeakLookbackDays
+	}
+	return c.LookbackDays
 }
 
 func (c GitHubLeakMonitorConfig) ValidateFingerprintKey() error {
@@ -2069,6 +2092,7 @@ func Default() *Config {
 			IntervalSeconds:       DefaultGitHubLeakIntervalSeconds,
 			RequestTimeoutSeconds: DefaultGitHubLeakTimeoutSeconds,
 			PerPage:               DefaultGitHubLeakPerPage,
+			LookbackDays:          DefaultGitHubLeakLookbackDays,
 		},
 		AI: AIConfig{
 			DefaultChannel: "default",

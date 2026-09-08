@@ -1,8 +1,9 @@
 name: "libc-database"
 command: "python3"
 args:
-  - "D:/Projects/CyberStrikeAI/work/runtime/security-tools/bin/libc_database_runner.py"
-enabled: true
+  - "../runtime/security-tools/bin/libc_database_runner.py"
+# Requires the separately installed compatibility runner at the configured path.
+enabled: false
 short_description: "libc 本地符号检查工具"
 description: |
   Windows 兼容封装，支持对本地 libc 文件执行 dump 和有限 find。

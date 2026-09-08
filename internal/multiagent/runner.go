@@ -120,7 +120,7 @@ func RunDeepAgent(
 		})
 	}
 
-	agenticLoc, agenticSkillMW, agenticFSTools, agenticSkillsRoot, einoErr := prepareEinoAgenticSkills(ctx, appCfg.SkillsDir, ma, logger)
+	agenticLoc, agenticSkillMW, agenticFSTools, agenticSkillsRoot, einoErr := prepareEinoAgenticSkills(ctx, appCfg.EffectiveSkillsDir(), ma, logger)
 	if einoErr != nil {
 		return nil, einoErr
 	}

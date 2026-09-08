@@ -189,8 +189,8 @@ methods: { init: function() {
     url: window.g.baseUrl + "bio_auth/authen/getStaticToken",
     method: "post",
     data: {
-      apiKey: "4dabbc214dc088a5b1ddabc131b07375",
-      secret: "fefb6073d3daecab10fa741206f88ed7"
+      apiKey: "<REPLACE_WITH_VALUE>",
+      secret: "<REPLACE_WITH_VALUE>"
     }
   };
   // 发送请求

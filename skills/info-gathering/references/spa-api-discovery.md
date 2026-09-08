@@ -70,9 +70,9 @@ SPA 项目的 `config.js`（通常在根目录）经常硬编码敏感信息：
 window.g = {
   baseUrl: window.location.origin,
   // dev: "http://192.168.20.12:9277",  ← 内网地址泄露
-  token: "a6ab335afb73b3b9bab59e8d5c09d695",  // 硬编码token
-  //token: "7af73340c0ad82e25fcfd51a4f9a3feb",  // 其他版本token
-  appid: "ww4f2633c7e1ea23bd",    // 企业微信appid
+  token: "<REPLACE_WITH_VALUE>",  // 硬编码token
+  //token: "<REPLACE_WITH_VALUE>",  // 其他版本token
+  appid: "<REPLACE_WITH_VALUE>",    // 企业微信appid
   agentid: "1000213",
 }
 ```

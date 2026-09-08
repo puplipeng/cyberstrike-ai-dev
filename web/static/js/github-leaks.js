@@ -40,6 +40,7 @@ const GitHubLeaks = (() => {
         lastRun: '最近检索',
         nextRun: '下次检索',
         duration: '请求超时',
+        lookbackDays: '回溯天数',
         rateRemaining: 'API 剩余额度',
         rateReset: '额度重置',
         status: '状态',
@@ -355,6 +356,11 @@ const GitHubLeaks = (() => {
 
     function renderRuntime(runtime) {
         runtimeState = runtime && typeof runtime === 'object' ? runtime : {};
+        const runtimeElement = el('runtime');
+        const currentRules = runtimeElement && typeof runtimeElement.querySelector === 'function'
+            ? runtimeElement.querySelector('.ghl-runtime-rules-wrap')
+            : null;
+        const rulesExpanded = !!(currentRules && currentRules.open);
         const configured = runtimeState.configured === true;
         const running = runtimeState.running === true;
         const enabled = runtimeState.enabled === true;
@@ -363,16 +369,21 @@ const GitHubLeaks = (() => {
         runButton.disabled = running || !configured || !canExecute;
         runButton.textContent = running ? t('running') : t('runNow');
         const seconds = Math.max(30, Number(runtimeState.request_timeout_seconds) || 30);
+        const rawLookbackDays = Number(runtimeState.lookback_days);
+        const lookbackDays = Number.isInteger(rawLookbackDays) && rawLookbackDays >= 1 && rawLookbackDays <= 3650
+            ? rawLookbackDays
+            : t('noData');
         const items = [
             `<span class="ghl-runtime-state ${configured ? 'is-ok' : 'is-warning'}">${escapeHTML(configured ? t('configured') : t('notConfigured'))}</span>`,
             `<span>${escapeHTML(enabled ? t('enabled') : t('disabled'))}</span>`,
             `<span>${escapeHTML(t('duration'))}：${escapeHTML(seconds)}s</span>`,
+            `<span>${escapeHTML(t('lookbackDays'))}：${escapeHTML(lookbackDays)}</span>`,
             `<span>${escapeHTML(t('lastRun'))}：${escapeHTML(formatDate(runtimeState.last_run_at))}</span>`,
             `<span>${escapeHTML(t('nextRun'))}：${escapeHTML(formatDate(runtimeState.next_run_at))}</span>`,
             `<span>${escapeHTML(t('rateRemaining'))}：${Number.isFinite(Number(runtimeState.rate_remaining)) && Number(runtimeState.rate_remaining) >= 0 ? escapeHTML(Number(runtimeState.rate_remaining)) : escapeHTML(t('noData'))}</span>`,
             `<span>${escapeHTML(t('rateReset'))}：${escapeHTML(formatDate(runtimeState.rate_reset_at))}</span>`,
         ];
-        const rulesHTML = runtimeRulesHTML(runtimeState);
+        const rulesHTML = runtimeRulesHTML(runtimeState, rulesExpanded);
         if (rulesHTML) items.push(rulesHTML);
         const lastStatus = String(runtimeState.last_status || '').trim().toLowerCase();
         if (lastStatus === 'partial') {
@@ -380,12 +391,12 @@ const GitHubLeaks = (() => {
         } else if (lastStatus === 'error' || lastStatus === 'rate_limited' || lastStatus === 'cancelled' || (!lastStatus && runtimeState.last_error)) {
             items.push(`<span class="is-error">${escapeHTML(t('recentFailure'))}</span>`);
         }
-        el('runtime').innerHTML = items.join('');
+        runtimeElement.innerHTML = items.join('');
     }
 
     function normalizeRuntimeRules(runtime) {
         const value = runtime && typeof runtime === 'object' ? runtime : {};
-        const source = Array.isArray(value.rules) ? value.rules.slice(0, 32) : [];
+        const source = Array.isArray(value.rules) ? value.rules.slice(0, 40) : [];
         const allowedStatuses = new Set(['idle', 'success', 'not_modified', 'partial', 'error']);
         const rules = source.map(rule => {
             const lastStatus = String(rule && rule.last_status || '').trim().toLowerCase();
@@ -414,7 +425,7 @@ const GitHubLeaks = (() => {
         return rules;
     }
 
-    function runtimeRulesHTML(runtime) {
+    function runtimeRulesHTML(runtime, expanded) {
         const rules = normalizeRuntimeRules(runtime);
         if (!rules.length) return '';
         const statusLabels = {
@@ -441,7 +452,7 @@ const GitHubLeaks = (() => {
                 : '';
             return `<li class="ghl-runtime-rule"><span class="ghl-runtime-rule-name"><strong>${escapeHTML(rule.name || t('noData'))}</strong><span class="ghl-rule-state ${stateClass}">${escapeHTML(stateLabel)}</span></span><span class="ghl-runtime-rule-result"><code>${escapeHTML(rule.query || t('noData'))}</code><span class="ghl-runtime-rule-meta">${status}${incomplete}${truncated}</span>${error}</span></li>`;
         }).join('');
-        return `<div class="ghl-runtime-rules-wrap"><strong>${escapeHTML(t('rules'))}：</strong><ul class="ghl-runtime-rules">${rows}</ul></div>`;
+        return `<details class="ghl-runtime-rules-wrap"${expanded === true ? ' open' : ''}><summary class="ghl-runtime-rules-summary"><span>${escapeHTML(t('rules'))}</span><span class="ghl-runtime-rules-count">${escapeHTML(rules.length)}</span></summary><ul class="ghl-runtime-rules">${rows}</ul></details>`;
     }
 
     function renderStats(stats) {

@@ -441,6 +441,9 @@ func (h *RobotHandler) HandleMessage(platform, userID, text string) (reply strin
 	role := h.getRole(platform, userID)
 	agentMode := h.getAgentMode(platform, userID)
 	resp, newConvID, err := h.agentHandler.ProcessMessageForRobot(ctx, platform, robotPrincipal(access), convID, text, role, agentMode)
+	if newConvID != "" && newConvID != convID {
+		h.setConversation(platform, userID, newConvID)
+	}
 	if err != nil {
 		h.logger.Warn("机器人 Agent 执行失败", zap.String("platform", platform), zap.String("userID", userID), zap.Error(err))
 		if errors.Is(err, context.Canceled) {
@@ -450,9 +453,6 @@ func (h *RobotHandler) HandleMessage(platform, userID, text string) (reply strin
 			return "任务执行超时，请稍后重试或精简本次请求范围。"
 		}
 		return "处理失败: " + err.Error()
-	}
-	if newConvID != convID {
-		h.setConversation(platform, userID, newConvID)
 	}
 	return resp
 }

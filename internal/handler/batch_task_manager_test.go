@@ -1,11 +1,129 @@
 package handler
 
 import (
+	"cyberstrike-ai/internal/config"
+	"cyberstrike-ai/internal/database"
+	"cyberstrike-ai/internal/testutil/testpostgres"
+	"encoding/json"
 	"errors"
+	"github.com/gin-gonic/gin"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
 )
+
+func batchChannelTestConfig() *config.Config {
+	cfg := &config.Config{AI: config.AIConfig{DefaultChannel: "agnes", Channels: map[string]config.AIChannelConfig{
+		"agnes": {Provider: "openai_compatible", Model: "agnes-2.5-flash", BaseURL: "https://agnes.invalid/v1"},
+		"glm":   {Provider: "openai_compatible", Model: "glm-5.3-flash", BaseURL: "https://glm.invalid/v4"},
+	}}}
+	cfg.ApplyDefaultAIChannel()
+	return cfg
+}
+
+func TestBatchChannelSelectionAndValidation(t *testing.T) {
+	cfg := batchChannelTestConfig()
+	m := NewBatchTaskManager(zap.NewNop())
+	h := &AgentHandler{config: cfg, batchTaskManager: m}
+	for _, tc := range []struct {
+		channel string
+		status  int
+		want    string
+	}{
+		{"glm", 200, "glm"}, {"", 200, "agnes"}, {"deleted-channel", 400, ""},
+	} {
+		t.Run(tc.channel, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]interface{}{"tasks": []string{"synthetic task; do not execute"}, "aiChannelId": tc.channel})
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("POST", "/api/batch-tasks", strings.NewReader(string(body)))
+			c.Request.Header.Set("Content-Type", "application/json")
+			h.CreateBatchQueue(c)
+			if w.Code != tc.status {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+			if tc.status != 200 {
+				return
+			}
+			var response struct {
+				Queue BatchTaskQueue `json:"queue"`
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &response)
+			if response.Queue.AIChannelID != tc.want {
+				t.Fatalf("channel=%s", response.Queue.AIChannelID)
+			}
+			runCfg, id, err := h.configForBatchAIChannel(response.Queue.AIChannelID)
+			if err != nil || id != tc.want || runCfg.OpenAI.BaseURL != cfg.AI.Channels[tc.want].BaseURL {
+				t.Fatalf("wrong execution config: %s %v", id, err)
+			}
+			if cfg.OpenAI.Model != "agnes-2.5-flash" {
+				t.Fatal("shared global config was mutated")
+			}
+		})
+	}
+	delete(cfg.AI.Channels, "glm")
+	if _, _, err := h.configForBatchAIChannel("glm"); err == nil {
+		t.Fatal("deleted selected channel silently fell back")
+	}
+}
+
+func TestBatchChannelPersistenceAndPausedEdits(t *testing.T) {
+	db, err := database.NewDB(testpostgres.DSN(t), zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	m := NewBatchTaskManager(zap.NewNop())
+	m.db = db
+	q, err := m.CreateBatchQueue("channel test", "", "eino_single", "manual", "", "", nil, 1, nil, []string{"do not execute"}, "glm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reload through another manager, as after a server restart.
+	reloaded := NewBatchTaskManager(zap.NewNop())
+	reloaded.db = db
+	q, ok := reloaded.GetBatchQueue(q.ID)
+	if !ok || q.AIChannelID != "glm" {
+		t.Fatal("channel lost on reload")
+	}
+	for _, list := range []func() ([]*database.BatchTaskQueueRow, error){db.GetAllBatchQueues, func() ([]*database.BatchTaskQueueRow, error) { return db.ListBatchQueues(10, 0, "all", "") }} {
+		rows, err := list()
+		if err != nil || len(rows) != 1 || rows[0].AIChannelID.String != "glm" {
+			t.Fatalf("list failed: %v", err)
+		}
+	}
+	reloaded.UpdateQueueStatus(q.ID, BatchQueueStatusPaused)
+	if err := reloaded.UpdateQueueMetadata(q.ID, "renamed", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	row, err := db.GetBatchQueue(q.ID)
+	if err != nil || row.AIChannelID.String != "glm" {
+		t.Fatal("unrelated metadata edit cleared channel")
+	}
+	reloaded.TryMarkQueueExecutor(q.ID)
+	if err := reloaded.UpdateQueueMetadata(q.ID, "renamed", "", "", nil, "agnes"); err == nil {
+		t.Fatal("edited channel while executor was active")
+	}
+	reloaded.UnmarkQueueExecutor(q.ID)
+	if err := reloaded.UpdateQueueMetadata(q.ID, "renamed", "", "", nil, "agnes"); err != nil {
+		t.Fatal(err)
+	}
+	row, err = db.GetBatchQueue(q.ID)
+	if err != nil || row.AIChannelID.String != "agnes" || row.Status != "paused" {
+		t.Fatal("paused edit was not persisted")
+	}
+	// Persistence failure must not report a successful in-memory channel change.
+	_ = db.Close()
+	if err := reloaded.UpdateQueueMetadata(q.ID, "bad", "", "", nil, "glm"); err == nil {
+		t.Fatal("DB failure hidden")
+	}
+	q, _ = reloaded.GetBatchQueue(q.ID)
+	if q.AIChannelID != "agnes" {
+		t.Fatal("memory diverged after failed save")
+	}
+}
 
 func TestNormalizeBatchQueueConcurrency(t *testing.T) {
 	if got := normalizeBatchQueueConcurrency(0); got != DefaultBatchQueueConcurrency {

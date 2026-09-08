@@ -18,7 +18,9 @@ const (
 	DefaultTimeoutSeconds  = 45
 	DefaultPollSeconds     = 7200
 	DefaultMaxResults      = 100
-	MaxRules               = 32
+	DefaultLookbackDays    = 365
+	MaxLookbackDays        = 3650
+	MaxRules               = 40
 	MaxKeywords            = 6
 	maxKeywordBytes        = 200
 	maxRuleNameBytes       = 100
@@ -45,6 +47,7 @@ type Settings struct {
 	RequestTimeoutSeconds int      `json:"request_timeout_seconds"`
 	PollIntervalSeconds   int      `json:"poll_interval_seconds,omitempty"`
 	MaxResultsPerKeyword  int      `json:"max_results_per_keyword,omitempty"`
+	LookbackDays          int      `json:"lookback_days,omitempty"`
 }
 
 // Normalize validates settings and applies conservative defaults. The request
@@ -77,6 +80,12 @@ func (s Settings) Normalize() (Settings, error) {
 	// accidentally walking GitHub's capped search result window.
 	if s.MaxResultsPerKeyword < 1 || s.MaxResultsPerKeyword > 100 {
 		return Settings{}, errors.New("max_results_per_keyword must be between 1 and 100")
+	}
+	if s.LookbackDays == 0 {
+		s.LookbackDays = DefaultLookbackDays
+	}
+	if s.LookbackDays < 1 || s.LookbackDays > MaxLookbackDays {
+		return Settings{}, fmt.Errorf("lookback_days must be between 1 and %d", MaxLookbackDays)
 	}
 	// Named rules take precedence. Clearing the legacy field prevents an old
 	// keywords value from becoming a hidden extra request after rules are added.
@@ -317,47 +326,50 @@ func ValidStatus(status string) bool {
 }
 
 type Finding struct {
-	ID            string    `json:"id"`
-	Status        string    `json:"status"`
-	RuleName      string    `json:"rule_name"`
-	Keyword       string    `json:"keyword"`
-	Repository    string    `json:"repository"`
-	Path          string    `json:"path"`
-	BlobSHA       string    `json:"-"`
-	Line          int       `json:"line"`
-	SecretType    string    `json:"secret_type"`
-	Confidence    string    `json:"confidence"`
-	Severity      string    `json:"severity"`
-	Fingerprint   string    `json:"fingerprint"`
-	MaskedExcerpt string    `json:"masked_excerpt"`
-	HTMLURL       string    `json:"html_url"`
-	FirstSeenAt   time.Time `json:"first_seen_at"`
-	LastSeenAt    time.Time `json:"last_seen_at"`
+	ID              string     `json:"id"`
+	Status          string     `json:"status"`
+	RuleName        string     `json:"rule_name"`
+	Keyword         string     `json:"keyword"`
+	Repository      string     `json:"repository"`
+	Path            string     `json:"path"`
+	BlobSHA         string     `json:"-"`
+	Line            int        `json:"line"`
+	SecretType      string     `json:"secret_type"`
+	Confidence      string     `json:"confidence"`
+	Severity        string     `json:"severity"`
+	Fingerprint     string     `json:"fingerprint"`
+	MaskedExcerpt   string     `json:"masked_excerpt"`
+	HTMLURL         string     `json:"html_url"`
+	SourceUpdatedAt *time.Time `json:"source_updated_at,omitempty"`
+	FirstSeenAt     time.Time  `json:"first_seen_at"`
+	LastSeenAt      time.Time  `json:"last_seen_at"`
 }
 
 // Candidate is already sanitized. It intentionally has no field capable of
 // carrying a raw secret or a raw GitHub response.
 type Candidate struct {
-	RuleName      string
-	Keyword       string
-	Repository    string
-	Path          string
-	BlobSHA       string
-	Line          int
-	SecretType    string
-	Confidence    string
-	Severity      string
-	Fingerprint   string
-	MaskedExcerpt string
-	HTMLURL       string
+	RuleName        string
+	Keyword         string
+	Repository      string
+	Path            string
+	BlobSHA         string
+	Line            int
+	SecretType      string
+	Confidence      string
+	Severity        string
+	Fingerprint     string
+	MaskedExcerpt   string
+	HTMLURL         string
+	SourceUpdatedAt time.Time
 }
 
 type ListFilter struct {
-	Query    string
-	Status   string
-	Keyword  string
-	Page     int
-	PageSize int
+	Query              string
+	Status             string
+	Keyword            string
+	Page               int
+	PageSize           int
+	SourceUpdatedAfter *time.Time
 }
 
 func (f *ListFilter) Validate() error {
@@ -414,6 +426,7 @@ type RuntimeStatus struct {
 	IntervalSeconds        int          `json:"interval_seconds"`
 	RequestIntervalSeconds int          `json:"request_interval_seconds"`
 	RequestTimeoutSeconds  int          `json:"request_timeout_seconds"`
+	LookbackDays           int          `json:"lookback_days"`
 	Keywords               []string     `json:"keywords"`
 	Query                  string       `json:"query"`
 	Rules                  []RuleStatus `json:"rules"`
@@ -436,14 +449,18 @@ type RuleStatus struct {
 }
 
 type KeywordState struct {
-	Keyword       string
-	ETag          string
-	LastAttemptAt *time.Time
-	LastSuccessAt *time.Time
-	LastStatus    string
-	LastError     string
-	Incomplete    bool
-	Truncated     bool
+	Keyword             string
+	ETag                string
+	FreshnessPolicy     string
+	FreshnessCheckedAt  *time.Time
+	FreshnessCursor     int
+	FreshnessCursorETag string
+	LastAttemptAt       *time.Time
+	LastSuccessAt       *time.Time
+	LastStatus          string
+	LastError           string
+	Incomplete          bool
+	Truncated           bool
 }
 
 type RunRecord struct {

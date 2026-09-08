@@ -799,6 +799,7 @@ async function loadConfig(loadTools = true, options = {}) {
         const githubLeakToken = document.getElementById('github-leak-token');
         const githubLeakTokenHint = document.getElementById('github-leak-token-hint');
         const githubLeakInterval = document.getElementById('github-leak-interval');
+        const githubLeakLookbackDays = document.getElementById('github-leak-lookback-days');
         const githubLeakTimeout = document.getElementById('github-leak-timeout');
         const githubLeakPerPage = document.getElementById('github-leak-per-page');
         if (githubLeakEnabled) githubLeakEnabled.checked = githubLeak.enabled === true;
@@ -814,6 +815,7 @@ async function loadConfig(loadTools = true, options = {}) {
         const githubLeakEditor = ensureGitHubLeakRulesEditor();
         if (githubLeakEditor) githubLeakEditor.load(githubLeak);
         if (githubLeakInterval) githubLeakInterval.value = String(githubLeak.interval_seconds || 7200);
+        if (githubLeakLookbackDays) githubLeakLookbackDays.value = String(githubLeak.lookback_days || 365);
         if (githubLeakTimeout) githubLeakTimeout.value = String(githubLeak.request_timeout_seconds || 45);
         if (githubLeakPerPage) githubLeakPerPage.value = String(githubLeak.per_page || 30);
 
@@ -854,7 +856,7 @@ async function loadConfig(loadTools = true, options = {}) {
         }
         
         // 填充Agent配置
-        document.getElementById('agent-max-iterations').value = currentConfig.agent.max_iterations || 30;
+        document.getElementById('agent-max-iterations').value = currentConfig.agent.max_iterations || 1000;
         applyTokenOptimizationSettings(currentConfig);
         const toolWaitTimeoutEl = document.getElementById('agent-tool-wait-timeout-seconds');
         if (toolWaitTimeoutEl) {
@@ -1919,6 +1921,7 @@ async function applySettings() {
         const githubLeakEnabledEl = document.getElementById('github-leak-enabled');
         const githubLeakTokenEl = document.getElementById('github-leak-token');
         const githubLeakIntervalEl = document.getElementById('github-leak-interval');
+        const githubLeakLookbackDaysEl = document.getElementById('github-leak-lookback-days');
         const githubLeakTimeoutEl = document.getElementById('github-leak-timeout');
         const githubLeakPerPageEl = document.getElementById('github-leak-per-page');
         const githubLeakRulesResult = ensureGitHubLeakRulesEditor()?.read() || {
@@ -1928,6 +1931,7 @@ async function applySettings() {
         };
         const githubLeakRules = githubLeakRulesResult.rules;
         const githubLeakInterval = parseInt(githubLeakIntervalEl?.value || '7200', 10);
+        const githubLeakLookbackDays = Number(githubLeakLookbackDaysEl?.value || '365');
         const githubLeakTimeout = parseInt(githubLeakTimeoutEl?.value || '45', 10);
         const githubLeakPerPage = parseInt(githubLeakPerPageEl?.value || '30', 10);
         const githubLeakEnabled = githubLeakEnabledEl?.checked === true;
@@ -1952,6 +1956,10 @@ async function applySettings() {
         }
         if (!Number.isInteger(githubLeakInterval) || githubLeakInterval < 31 || githubLeakInterval > 86400) {
             githubLeakIntervalEl?.classList.add('error');
+            hasError = true;
+        }
+        if (!Number.isInteger(githubLeakLookbackDays) || githubLeakLookbackDays < 1 || githubLeakLookbackDays > 3650) {
+            githubLeakLookbackDaysEl?.classList.add('error');
             hasError = true;
         }
         if (!Number.isInteger(githubLeakTimeout) || githubLeakTimeout < 30 || githubLeakTimeout > 120) {
@@ -2109,6 +2117,7 @@ async function applySettings() {
                     rules: githubLeakRules,
                     keywords: [],
                     interval_seconds: githubLeakInterval,
+                    lookback_days: githubLeakLookbackDays,
                     request_timeout_seconds: githubLeakTimeout,
                     per_page: githubLeakPerPage
                 };
@@ -2132,7 +2141,7 @@ async function applySettings() {
                 audit_agent_prompt_review_edit: document.getElementById('hitl-audit-agent-prompt-review-edit-settings')?.value.trim() || ''
             },
             agent: {
-                max_iterations: parseInt(document.getElementById('agent-max-iterations').value) || 30,
+                max_iterations: parseInt(document.getElementById('agent-max-iterations').value) || 1000,
                 max_task_tokens: readTaskTokenBudget(),
                 tool_wait_timeout_seconds: Math.max(0, parseInt(document.getElementById('agent-tool-wait-timeout-seconds')?.value || '60', 10) || 0),
                 external_mcp_max_concurrent_per_server: parseInt(document.getElementById('agent-external-mcp-concurrency-server')?.value || '2', 10) || 0,
@@ -4869,7 +4878,7 @@ window.closeAllSettingsCustomSelects = closeAllSettingsCustomSelects;
 
 function applyTokenOptimizationSettings(config) {
     const budget = document.getElementById('agent-max-task-tokens');
-    if (budget) budget.value = config?.agent?.max_task_tokens || 1000000;
+    if (budget) budget.value = config?.agent?.max_task_tokens || 100000000;
     for (const [id, field] of [['eino-tool-search-enable', 'tool_search_enable'], ['eino-reduction-enable', 'reduction_enable']]) {
         const checkbox = document.getElementById(id);
         if (checkbox) checkbox.checked = config?.multi_agent?.[field] === true;
@@ -4878,13 +4887,13 @@ function applyTokenOptimizationSettings(config) {
 
 function readTaskTokenBudget() {
     const raw = document.getElementById('agent-max-task-tokens')?.value;
-    if (raw === undefined) return currentConfig?.agent?.max_task_tokens ?? 1000000;
-    if (String(raw).trim() === '') return 1000000;
+    if (raw === undefined) return currentConfig?.agent?.max_task_tokens ?? 100000000;
+    if (String(raw).trim() === '') return 100000000;
     const value = Number(raw);
     if (!Number.isSafeInteger(value) || value < -1) {
         throw new Error(settingsT('settingsBasic.invalidTaskTokenBudget', '任务 Token 预算必须为正整数、0（默认）或 -1（不限）'));
     }
-    return value === 0 ? 1000000 : value;
+    return value === 0 ? 100000000 : value;
 }
 
 function readTokenOptimizationSettings() {

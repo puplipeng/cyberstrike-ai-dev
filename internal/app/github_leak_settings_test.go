@@ -12,12 +12,16 @@ func TestGitHubLeakSettingsUseTwoHourScheduleAndSafeRetrySpacing(t *testing.T) {
 	settings := githubLeakSettingsFromConfig(config.GitHubLeakMonitorConfig{
 		Keywords:        []string{"storage-service", "vendor.example"},
 		IntervalSeconds: 7200,
+		LookbackDays:    365,
 	})
 	if settings.PollIntervalSeconds != 7200 {
 		t.Fatalf("poll interval = %d, want 7200", settings.PollIntervalSeconds)
 	}
 	if settings.IntervalSeconds != githubleak.DefaultIntervalSeconds || settings.IntervalSeconds < githubleak.MinIntervalSeconds {
 		t.Fatalf("request retry spacing = %d", settings.IntervalSeconds)
+	}
+	if settings.LookbackDays != 365 {
+		t.Fatalf("lookback days = %d, want 365", settings.LookbackDays)
 	}
 }
 
@@ -41,7 +45,7 @@ func TestGitHubLeakSettingsFingerprintKeyPrecedence(t *testing.T) {
 func TestGitHubLeakSettingsStableFingerprintSurvivesPATRotation(t *testing.T) {
 	// Use a mixed-character synthetic token: all-repeated values are deliberately
 	// rejected by the detector as placeholders.
-	raw := "ghp_" + "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	raw := "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	item := githubleak.SearchItem{
 		Repository: "owner/repo", Path: "token.env", BlobSHA: strings.Repeat("a", 40),
 		HTMLURL: "https://github.com/owner/repo/blob/main/token.env", Fragments: []string{raw},

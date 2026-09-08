@@ -747,12 +747,15 @@ func (h *AgentHandler) finalizeRobotAgentError(ctx context.Context, assistantMes
 	if shouldPersistEinoAgentTraceAfterRunError(ctx) {
 		h.persistEinoAgentTraceForResume(conversationID, resultMA)
 	}
-	errMsg := "执行失败: " + multiagent.EinoClientRunErrorMessage(errMA)
+	errMsg := einoRunFailureMessage(resultMA, errMA)
 	if assistantMessageID != "" {
 		_, _ = h.db.Exec("UPDATE messages SET content = $1, updated_at = $2 WHERE id = $3", errMsg, time.Now(), assistantMessageID)
 		_ = h.db.AddProcessDetail(assistantMessageID, conversationID, "error", errMsg, nil)
 	}
-	return "", conversationID, errMA
+	if multiagent.IsEinoIterationLimitError(errMA) {
+		return errMsg, conversationID, nil
+	}
+	return "", conversationID, einoRunFailureError(errMA)
 }
 
 func (h *AgentHandler) finalizeRobotAgentSuccess(taskCtx context.Context, assistantMessageID, conversationID string, resultMA *multiagent.RunResult) (string, string, error) {
@@ -1849,6 +1852,7 @@ func filterSlice[T any](items []T, keep func(T) bool) []T {
 
 // BatchTaskRequest 批量任务请求
 type BatchTaskRequest struct {
+	AIChannelID  string       `json:"aiChannelId,omitempty"`
 	Title        string       `json:"title"`                    // 任务标题（可选）
 	Tasks        []string     `json:"tasks" binding:"required"` // 任务列表，每行一个任务
 	Role         string       `json:"role,omitempty"`           // 角色名称（可选，空字符串表示默认角色）
@@ -1924,7 +1928,12 @@ func (h *AgentHandler) CreateBatchQueue(c *gin.Context) {
 		nextRunAt = &next
 	}
 
-	queue, createErr := h.batchTaskManager.CreateBatchQueue(req.Title, req.Role, agentMode, scheduleMode, cronExpr, req.ProjectID, nextRunAt, req.Concurrency, req.HITL, validTasks)
+	_, channelID, channelErr := h.configForBatchAIChannel(req.AIChannelID)
+	if channelErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": channelErr.Error()})
+		return
+	}
+	queue, createErr := h.batchTaskManager.CreateBatchQueue(req.Title, req.Role, agentMode, scheduleMode, cronExpr, req.ProjectID, nextRunAt, req.Concurrency, req.HITL, validTasks, channelID)
 	if createErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": createErr.Error()})
 		return
@@ -1969,7 +1978,14 @@ func (h *AgentHandler) GetBatchQueue(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "队列不存在"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"queue": queue})
+	response := gin.H{"queue": queue}
+	if cfg, id, err := h.configForBatchAIChannel(queue.AIChannelID); err == nil {
+		response["aiChannelId"] = id
+		response["aiChannelModel"] = cfg.OpenAI.Model
+	} else {
+		response["aiChannelError"] = err.Error()
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // ListBatchQueuesResponse 批量任务队列列表响应
@@ -2119,16 +2135,26 @@ func (h *AgentHandler) PauseBatchQueue(c *gin.Context) {
 func (h *AgentHandler) UpdateBatchQueueMetadata(c *gin.Context) {
 	queueID := c.Param("queueId")
 	var req struct {
-		Title       string `json:"title"`
-		Role        string `json:"role"`
-		AgentMode   string `json:"agentMode"`
-		Concurrency *int   `json:"concurrency"`
+		AIChannelID *string `json:"aiChannelId"`
+		Title       string  `json:"title"`
+		Role        string  `json:"role"`
+		AgentMode   string  `json:"agentMode"`
+		Concurrency *int    `json:"concurrency"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.batchTaskManager.UpdateQueueMetadata(queueID, req.Title, req.Role, req.AgentMode, req.Concurrency); err != nil {
+	var channelIDs []string
+	if req.AIChannelID != nil {
+		_, id, err := h.configForBatchAIChannel(*req.AIChannelID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		channelIDs = []string{id}
+	}
+	if err := h.batchTaskManager.UpdateQueueMetadata(queueID, req.Title, req.Role, req.AgentMode, req.Concurrency, channelIDs...); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

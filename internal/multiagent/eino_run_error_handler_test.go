@@ -3,6 +3,7 @@ package multiagent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -251,31 +252,65 @@ func TestEinoClientRunErrorMessageMarksDirectSummarizationModelError(t *testing.
 	}
 }
 
-func TestEinoRunErrorHandlerIterationLimitProgress(t *testing.T) {
+func TestEinoRunErrorHandlerIterationLimitDefersTerminalEvent(t *testing.T) {
 	var events []string
-	var errorKind interface{}
-	err := errors.New("maximum iteration reached")
+	pending := newEinoPendingToolCalls("conv-1", nil)
+	pending.Mark(toolCallPendingInfo{ToolCallID: "call-1", ToolName: "execute"})
+	err := fmt.Errorf("[NodeRunError] run node[ChatModel] pre processor fail: %w", adk.ErrExceedMaxIterations)
 
 	got := newEinoRunErrorHandler(einoRunErrorHandlerConfig{
 		ConversationID: "conv-1",
 		OrchMode:       "deep",
-		Progress: func(eventType, _ string, raw interface{}) {
+		Pending:        pending,
+		Progress: func(eventType, _ string, _ interface{}) {
 			events = append(events, eventType)
-			if eventType == "error" {
-				data, _ := raw.(map[string]interface{})
-				errorKind = data["errorKind"]
-			}
 		},
 	}).Handle(err)
 
 	if !errors.Is(got, err) {
 		t.Fatalf("err = %v", got)
 	}
-	if len(events) != 2 || events[0] != "iteration_limit_reached" || events[1] != "error" {
-		t.Fatalf("events = %#v", events)
+	if len(events) != 0 {
+		t.Fatalf("internal events = %#v, want none; outer handler owns the terminal event", events)
 	}
-	if errorKind != "iteration_limit" {
-		t.Fatalf("errorKind = %#v", errorKind)
+	if pending.Count() != 0 {
+		t.Fatalf("pending count = %d, want 0", pending.Count())
+	}
+}
+
+func TestEinoClientRunErrorClassifiesIterationLimitWithoutLeakingNodeError(t *testing.T) {
+	rawErr := fmt.Errorf("[NodeRunError] run node[ChatModel] pre processor fail: %w\nnode path: [node_1, ChatModel]", adk.ErrExceedMaxIterations)
+
+	message := EinoClientRunErrorMessage(rawErr)
+	if message != einoIterationLimitMessage {
+		t.Fatalf("message = %q, want %q", message, einoIterationLimitMessage)
+	}
+	for _, leaked := range []string{"NodeRunError", "pre processor", "exceeds max iterations", "node path"} {
+		if strings.Contains(message, leaked) {
+			t.Fatalf("message leaked %q: %q", leaked, message)
+		}
+	}
+
+	fields := EinoClientRunErrorFields(rawErr)
+	if fields["errorKind"] != "iteration_limit" || fields["errorSummary"] != einoIterationLimitMessage {
+		t.Fatalf("iteration fields = %#v", fields)
+	}
+	if fields["technicalError"] != rawErr.Error() {
+		t.Fatalf("technicalError = %#v, want raw wrapped error", fields["technicalError"])
+	}
+	if _, ok := fields["retryExhausted"]; ok {
+		t.Fatalf("iteration limit must not be classified as retry exhaustion: %#v", fields)
+	}
+}
+
+func TestEinoClientRunErrorIterationLimitLegacyTextFallback(t *testing.T) {
+	err := errors.New("maximum iteration reached")
+	if got := EinoClientRunErrorMessage(err); got != einoIterationLimitMessage {
+		t.Fatalf("legacy message = %q", got)
+	}
+	fields := EinoClientRunErrorFields(err)
+	if fields["errorKind"] != "iteration_limit" || fields["technicalError"] != err.Error() {
+		t.Fatalf("legacy fields = %#v", fields)
 	}
 }
 

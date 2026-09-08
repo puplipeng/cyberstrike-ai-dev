@@ -18,6 +18,7 @@ github_leak_monitor:
     - enabled: true
       name: example-corp-accesskey
       keywords: ["vendor.example", "ACCESSKEY"]
+  lookback_days: 365
   interval_seconds: 7200
   request_timeout_seconds: 45
   per_page: 30
@@ -27,7 +28,11 @@ github_leak_monitor:
 
 `token` 可改用环境变量 `GITHUB_TOKEN` 注入。建议创建专用、只读且权限最小的 Token。`fingerprint_key` 可改用 `GITHUB_LEAK_FINGERPRINT_KEY` 注入，应使用稳定的独立随机密钥；`hex:<64hex>` 会解码为 32 字节 HMAC key。未配置时仅为兼容旧版才从 Token 派生，轮换 Token 前应迁移到等价的 `hex:` key。管理页面只返回两项密钥是否已配置，不会回显密钥。
 
-所有配置词会被转义并引用为字面量，用户输入不会被当作 `repo:`、`OR` 等 GitHub 查询语法执行。调度周期默认 7200 秒（2 小时），相邻请求内部固定至少 60 秒。`request_timeout_seconds` 是独立的 HTTP 超时，默认 45 秒。所有可重试响应都会遵循 `Retry-After`；只有确认限流时才使用 `X-RateLimit-Reset`。
+所有配置词会被转义并引用为字面量，用户输入不会被当作 `repo:`、`OR` 等 GitHub 查询语法执行。`lookback_days` 控制发现的时间回溯窗口，默认 365 天，允许 1–3650 天。它不会向 GitHub Code Search 查询拼接日期语法：每轮 Code Search 命中且本地 detector 发现疑似凭据后，平台会查询默认分支中该路径最近一次提交的时间；只有该时间不早于本轮开始时间减去 `lookback_days`，且没有异常超前于本机时间的发现才会入库。列表、统计与详情接口也只展示当前回溯窗口内的数据，历史行会留在数据库中供审计，不会被删除。
+
+路径提交时间查询每轮最多 200 次，并在所有启用规则之间预留公平额度；前面规则没有用完的额度会分给后面的规则。某条规则本轮未检查完时会把游标与搜索快照 ETag 一起保存：快照未变时从未覆盖的位置继续，快照变化时从头校验，避免沿用失效的数组位置。文件刚被删除或重命名造成的单项 404、409、422 或空提交记录只跳过该项；鉴权、限流、服务端和网络错误会停止本轮并保留重试状态。
+
+调度周期默认 7200 秒（2 小时）。Code Search 请求按 `interval_seconds` 串行限速，默认相邻请求至少间隔 60 秒；路径提交元数据请求使用独立队列，完成时间之间至少间隔 1 秒。`request_timeout_seconds` 是每个 HTTP 请求的超时，默认 45 秒。Code Search 的可重试响应会遵循 `Retry-After`，只有确认限流时才使用 `X-RateLimit-Reset`；元数据请求不自动重试，错误按上一段规则结束本项或本轮。
 
 ## 入库边界
 
@@ -40,6 +45,6 @@ github_leak_monitor:
 - OAuth `client_secret`、webhook/signing secret、access/auth/bearer/refresh token 和 `Authorization: Bearer ...`；
 - 现有 GitHub Token、AWS Access Key ID、Google API Key、Slack、Stripe、SendGrid、npm、Twilio 与私钥块格式。
 
-赋值值必须满足对应的最小长度、字符类别和熵要求。`example`、`sample`、`dummy`、`changeme`、`your-*`、测试占位符、重复字符、环境变量/Vault 引用、URL 及元数据字段会被排除。普通 `password`/`token` 单词不会命中；裸 `token=` 和密码字段使用更严格阈值。OAuth client ID 属于公开标识符，只能作为检索锚点，即使与 client secret 同时出现也只保存 secret finding。
+赋值值必须满足对应的最小长度、字符类别和熵要求。空值、`example`、`sample`、`dummy`、`changeme`、`your-*`、`API_KEY_HERE`、测试/脱敏占位符、重复字符与典型顺序样例会被排除。环境变量、模板表达式、配置对象、YAML alias、Vault/Secret Manager、容器密钥文件等引用也不会作为明文泄露入库。普通 `password`/`token` 单词不会命中；裸 `token=` 和密码字段使用更严格阈值。OAuth client ID 属于公开标识符，只能作为检索锚点，即使与 client secret 同时出现也只保存 secret finding。
 
 GitHub Code Search 的结果只是候选情报：它只覆盖默认分支，对大文件、历史提交、其他分支、Gist、Issue 和 PR 内容并不完整；`incomplete_results` 会被记录为部分结果，不能据此认定没有泄露。

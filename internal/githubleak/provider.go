@@ -20,7 +20,11 @@ const (
 	githubAPIBase    = "https://api.github.com"
 	maxSearchBody    = 8 << 20
 	maxRetryAttempts = 3
+	metadataInterval = time.Second
+	maxETagBytes     = 512
 )
+
+var errPathCommitUnavailable = errors.New("GitHub path commit metadata unavailable")
 
 type SearchItem struct {
 	Repository string
@@ -101,13 +105,15 @@ func withTimeSource(clock timeSource) ClientOption {
 }
 
 type Client struct {
-	token       string
-	base        *url.URL
-	http        *http.Client
-	interval    time.Duration
-	clock       timeSource
-	requestMu   sync.Mutex
-	lastRequest time.Time
+	token               string
+	base                *url.URL
+	http                *http.Client
+	interval            time.Duration
+	clock               timeSource
+	requestMu           sync.Mutex
+	lastRequest         time.Time
+	metadataMu          sync.Mutex
+	metadataLastRequest time.Time
 }
 
 func NewClient(settings Settings, options ...ClientOption) (*Client, error) {
@@ -227,6 +233,104 @@ func (c *Client) SearchKeywords(ctx context.Context, keywords []string, etag str
 		}
 	}
 	return SearchResult{}, lastErr
+}
+
+// LatestPathCommitAt returns the newest commit timestamp for a file on the
+// repository's default branch. GitHub code search has no supported date
+// qualifier, so callers use this metadata request to enforce a source-age
+// boundary after a credential-shaped match is detected.
+func (c *Client) LatestPathCommitAt(ctx context.Context, item SearchItem) (time.Time, error) {
+	parts := strings.Split(strings.TrimSpace(item.Repository), "/")
+	path := strings.TrimSpace(item.Path)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || path == "" ||
+		parts[0] == "." || parts[0] == ".." || parts[1] == "." || parts[1] == ".." ||
+		len(item.Repository) > 300 || len(path) > 2000 ||
+		hasUnsafeMetadataText(item.Repository) || hasUnsafeMetadataText(path) {
+		return time.Time{}, errors.New("invalid GitHub commit metadata request")
+	}
+
+	endpoint := *c.base
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/repos/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]) + "/commits"
+	values := endpoint.Query()
+	values.Set("path", path)
+	values.Set("per_page", "1")
+	values.Set("page", "1")
+	endpoint.RawQuery = values.Encode()
+
+	c.metadataMu.Lock()
+	defer c.metadataMu.Unlock()
+	if !c.metadataLastRequest.IsZero() {
+		if err := c.clock.Wait(ctx, c.metadataLastRequest.Add(metadataInterval).Sub(c.clock.Now())); err != nil {
+			return time.Time{}, err
+		}
+	}
+	defer func() { c.metadataLastRequest = c.clock.Now() }()
+	result, err := c.doLatestPathCommit(ctx, endpoint.String())
+	if err != nil {
+		return time.Time{}, err
+	}
+	return result.UTC(), nil
+}
+
+func (c *Client) doLatestPathCommit(ctx context.Context, endpoint string) (time.Time, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return time.Time{}, errors.New("invalid GitHub commit metadata request")
+	}
+	if req.URL.Scheme != c.base.Scheme || req.URL.Host != c.base.Host || req.URL.User != nil {
+		return time.Time{}, errors.New("unapproved GitHub commit metadata origin")
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2026-03-10")
+	req.Header.Set("User-Agent", "CyberStrikeAI-github-leak-monitor/1.0")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return time.Time{}, ctx.Err()
+		}
+		return time.Time{}, errors.New("GitHub commit metadata network/TLS request failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		rateLimited := isRateLimitedResponse(resp.StatusCode, resp.Header, c.clock.Now())
+		return time.Time{}, &HTTPStatusError{
+			StatusCode:  resp.StatusCode,
+			Retryable:   rateLimited || resp.StatusCode >= 500,
+			RateLimited: rateLimited,
+			RateReset:   retryAt(resp.Header, c.clock.Now(), rateLimited),
+		}
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20+1))
+	if err != nil || len(data) > 1<<20 {
+		return time.Time{}, errors.New("GitHub commit metadata response incomplete or too large")
+	}
+	var payload []struct {
+		Commit struct {
+			Author struct {
+				Date time.Time `json:"date"`
+			} `json:"author"`
+			Committer struct {
+				Date time.Time `json:"date"`
+			} `json:"committer"`
+		} `json:"commit"`
+	}
+	if err = json.Unmarshal(data, &payload); err != nil {
+		return time.Time{}, errors.New("GitHub commit metadata returned invalid JSON")
+	}
+	if len(payload) == 0 {
+		return time.Time{}, errPathCommitUnavailable
+	}
+	updatedAt := payload[0].Commit.Committer.Date
+	if updatedAt.IsZero() {
+		updatedAt = payload[0].Commit.Author.Date
+	}
+	if updatedAt.IsZero() {
+		return time.Time{}, errPathCommitUnavailable
+	}
+	return updatedAt, nil
 }
 
 func (c *Client) doSearch(ctx context.Context, endpoint, etag string) (SearchResult, int, http.Header, error) {
@@ -384,11 +488,19 @@ func isHexString(value string) bool {
 }
 
 func cleanETag(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) > 512 || hasUnsafeMetadataText(value) {
+	value, ok := normalizeETag(value)
+	if !ok {
 		return ""
 	}
 	return value
+}
+
+func normalizeETag(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) > maxETagBytes || hasUnsafeMetadataText(value) {
+		return "", false
+	}
+	return value, true
 }
 
 func parseHeaderInt(value string, fallback int) int {

@@ -14,10 +14,16 @@ test('canonical AND rules trim, de-duplicate, sort and escape literal terms', ()
         rules.buildANDRule('path\\key\nfoo"bar').query,
         '"foo\\"bar" AND "path\\\\key" in:file',
     );
+    assert.deepEqual(rules.buildANDRule('学城'), {
+        keywords: ['学城'],
+        query: '"学城" in:file',
+        error: '',
+    });
+    assert.equal(rules.buildANDRule('乐享').query, '"乐享" in:file');
 });
 
 test('rule limits match the backend boundaries', () => {
-    assert.equal(rules.constants.MAX_RULES, 32);
+    assert.equal(rules.constants.MAX_RULES, 40);
     assert.equal(rules.constants.MAX_TERMS, 6);
     assert.match(rules.normalizeName('美'.repeat(34)).error, /100 字节/);
     assert.match(rules.normalizeName('bad\u2028name').error, /单行文本/);
@@ -25,19 +31,19 @@ test('rule limits match the backend boundaries', () => {
     assert.match(rules.buildANDRule(['aa', 'bb', 'cc', 'dd', 'ee', 'ff', 'gg']).error, /最多允许 6/);
     assert.match(rules.buildANDRule(['a'.repeat(200), 'b'.repeat(60)]).error, /256 字节/);
 
-    const tooMany = Array.from({ length: 33 }, (_, index) => ({
+    const tooMany = Array.from({ length: rules.constants.MAX_RULES + 1 }, (_, index) => ({
         name: `rule-${index}`,
         enabled: true,
         keywords: [`term-${index}`],
     }));
     const validation = rules.validateRules(tooMany);
     assert.equal(validation.valid, false);
-    assert.match(validation.globalErrors.join(''), /32/);
+    assert.match(validation.globalErrors.join(''), /40/);
 });
 
 test('validation rejects empty rows, duplicate names and duplicate canonical queries', () => {
     const validation = rules.validateRules([
-        { name: 'example-corp', enabled: true, keywords: ['vendor.example', 'clientid'] },
+        { name: 'Example-Corp', enabled: true, keywords: ['vendor.example', 'clientid'] },
         { name: 'example-corp', enabled: false, keywords: ['clientid', 'vendor.example'] },
         { name: 'empty', enabled: false, keywords: [] },
     ]);
@@ -49,7 +55,7 @@ test('validation rejects empty rows, duplicate names and duplicate canonical que
     assert.match(validation.errors[2].keywords, /至少需要 1/);
 
     const caseOnlyDifference = rules.validateRules([
-        { name: 'upper', enabled: true, keywords: ['vendor.example', 'CLIENTID'] },
+        { name: 'upper', enabled: true, keywords: ['VENDOR.EXAMPLE', 'CLIENTID'] },
         { name: 'lower', enabled: true, keywords: ['vendor.example', 'clientid'] },
     ]);
     assert.equal(caseOnlyDifference.valid, false);
@@ -97,4 +103,14 @@ test('settings page loads the rule editor before settings and saves new rules wi
     assert.match(settings, /github-leak-rules-error/);
     assert.match(settings, /activationError\(githubLeakEnabled, githubLeakRules\)/);
     assert.match(template, /id="github-leak-interval" min="31" max="86400"/);
+});
+
+test('settings page loads, validates and saves the GitHub leak lookback window', () => {
+    const template = fs.readFileSync(require.resolve('../../templates/index.html'), 'utf8');
+    const settings = fs.readFileSync(require.resolve('./settings.js'), 'utf8');
+    assert.match(template, /id="github-leak-lookback-days" min="1" max="3650" value="365"/);
+    assert.match(settings, /githubLeakLookbackDays\.value = String\(githubLeak\.lookback_days \|\| 365\)/);
+    assert.match(settings, /const githubLeakLookbackDays = Number\(githubLeakLookbackDaysEl\?\.value \|\| '365'\)/);
+    assert.match(settings, /githubLeakLookbackDays < 1 \|\| githubLeakLookbackDays > 3650/);
+    assert.match(settings, /lookback_days:\s*githubLeakLookbackDays/);
 });

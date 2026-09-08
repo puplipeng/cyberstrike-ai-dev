@@ -47,6 +47,7 @@ func (rt *reasoningToolChoiceCompatRoundTripper) RoundTrip(req *http.Request) (*
 		patched = body
 	}
 	patched = normalizeChatCompletionOutputLimits(patched)
+	patched = normalizeChatCompletionToolArguments(patched)
 	req.Body = io.NopCloser(bytes.NewReader(patched))
 	// Redirects and transport retries must replay the normalized limit, not the
 	// SDK's original body containing both max_tokens and max_completion_tokens.

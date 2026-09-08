@@ -65,6 +65,23 @@ func providerClientForServer(t *testing.T, server *httptest.Server, clock timeSo
 	return client
 }
 
+func TestETagLengthBoundaryIsSharedByProviderAndStore(t *testing.T) {
+	valid := strings.Repeat("a", maxETagBytes)
+	invalid := valid + "b"
+	if got := cleanETag(valid); got != valid {
+		t.Fatalf("%d-byte ETag was rejected", maxETagBytes)
+	}
+	if got := cleanETag(invalid); got != "" {
+		t.Fatalf("%d-byte ETag was accepted", maxETagBytes+1)
+	}
+	if got, ok := normalizeETag(valid); !ok || got != valid {
+		t.Fatalf("persistent %d-byte ETag was rejected", maxETagBytes)
+	}
+	if _, ok := normalizeETag(invalid); ok {
+		t.Fatalf("persistent %d-byte ETag was accepted", maxETagBytes+1)
+	}
+}
+
 func TestProviderExactLiteralQueryAndRequiredHeaders(t *testing.T) {
 	clock := newProviderTestClock()
 	keyword := `vendor.example org:evil`
@@ -107,6 +124,66 @@ func TestProviderExactLiteralQueryAndRequiredHeaders(t *testing.T) {
 	}
 	if result.RateRemaining != 27 || result.RateResetAt == nil || !result.RateResetAt.Equal(reset) {
 		t.Fatalf("rate metadata = remaining:%d reset:%v", result.RateRemaining, result.RateResetAt)
+	}
+}
+
+func TestProviderLatestPathCommitAtUsesDefaultBranchPathMetadata(t *testing.T) {
+	clock := newProviderTestClock()
+	want := time.Date(2026, 8, 20, 7, 8, 9, 0, time.UTC)
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != http.MethodGet || r.URL.Path != "/repos/owner/repo/commits" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.URL.Query().Get("path"); got != "configs/prod env.yaml" {
+			t.Errorf("path = %q", got)
+		}
+		if r.URL.Query().Get("per_page") != "1" || r.URL.Query().Get("page") != "1" || r.URL.Query().Has("sha") || r.URL.Query().Has("since") {
+			t.Errorf("commit query = %q", r.URL.RawQuery)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer unit-test-token" {
+			t.Errorf("Authorization header was not set on the approved origin")
+		}
+		if got := r.Header.Get("Accept"); got != "application/vnd.github+json" {
+			t.Errorf("Accept = %q", got)
+		}
+		_, _ = fmt.Fprintf(w, `[{"commit":{"author":{"date":"2026-08-19T01:02:03Z"},"committer":{"date":%q}}}]`, want.Format(time.RFC3339))
+	}))
+	defer server.Close()
+
+	client := providerClientForServer(t, server, clock)
+	got, err := client.LatestPathCommitAt(context.Background(), SearchItem{Repository: "owner/repo", Path: "configs/prod env.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || !got.Equal(want) {
+		t.Fatalf("calls=%d latest=%v, want %v", calls, got, want)
+	}
+}
+
+func TestProviderLatestPathCommitAtHandlesEmptyAndMalformedMetadata(t *testing.T) {
+	clock := newProviderTestClock()
+	responses := []string{`[]`, `[{"commit":{"author":{"date":null},"committer":{"date":null}}}]`}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, responses[0])
+		responses = responses[1:]
+	}))
+	defer server.Close()
+	client := providerClientForServer(t, server, clock)
+
+	got, err := client.LatestPathCommitAt(context.Background(), SearchItem{Repository: "owner/repo", Path: "old.env"})
+	if err == nil || !got.IsZero() {
+		t.Fatalf("empty commit list was accepted = %v, %v", got, err)
+	}
+	if _, err = client.LatestPathCommitAt(context.Background(), SearchItem{Repository: "owner/repo", Path: "unknown.env"}); err == nil {
+		t.Fatal("missing commit timestamp was accepted")
+	}
+	clock.mu.Lock()
+	waits := append([]time.Duration(nil), clock.waits...)
+	clock.mu.Unlock()
+	if len(waits) != 1 || waits[0] != metadataInterval {
+		t.Fatalf("metadata request spacing = %v, want [%s]", waits, metadataInterval)
 	}
 }
 

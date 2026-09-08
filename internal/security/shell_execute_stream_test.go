@@ -6,12 +6,84 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudwego/eino/adk/filesystem"
 )
+
+func TestEinoStreamingShell_NativeExecution(t *testing.T) {
+	for _, background := range []bool{false, true} {
+		name := "foreground"
+		if background {
+			name = "background"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			command := "printf native-ok; printf native-err >&2"
+			if runtime.GOOS == "windows" {
+				command = "[Console]::Out.Write('native-ok'); [Console]::Error.Write('native-err')"
+			}
+			sr, err := NewEinoStreamingShell().ExecuteStreaming(ctx, &filesystem.ExecuteRequest{Command: command, RunInBackendGround: background})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sr.Close()
+			var output strings.Builder
+			var exitCode *int
+			for {
+				response, err := sr.Recv()
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if response != nil {
+					output.WriteString(response.Output)
+					if response.ExitCode != nil {
+						exitCode = response.ExitCode
+					}
+				}
+			}
+			if exitCode == nil || *exitCode != 0 {
+				t.Fatalf("missing successful exit: %v, output %q", exitCode, output.String())
+			}
+			if !background && (!strings.Contains(output.String(), "native-ok") || !strings.Contains(output.String(), "native-err")) {
+				t.Fatalf("missing stdout/stderr: %q", output.String())
+			}
+		})
+	}
+}
+
+func TestEinoStreamingShell_NativeExitCode(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sr, err := NewEinoStreamingShell().ExecuteStreaming(ctx, &filesystem.ExecuteRequest{Command: "exit 7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sr.Close()
+	var exitCode *int
+	for {
+		response, err := sr.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response != nil && response.ExitCode != nil {
+			exitCode = response.ExitCode
+		}
+	}
+	if exitCode == nil || *exitCode != 7 {
+		t.Fatalf("expected exit 7, got %v", exitCode)
+	}
+}
 
 func TestEinoStreamingShell_StreamsStderrBeforeStdoutEOF(t *testing.T) {
 	requirePOSIXShell(t)

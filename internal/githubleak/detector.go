@@ -571,7 +571,7 @@ func hasCredentialSuffix(value string, suffixes ...string) bool {
 
 func credibleAssignedValue(value string, spec assignmentSpec) bool {
 	value = strings.TrimSpace(value)
-	if len(value) < spec.minLength || len(value) > 512 || isPlaceholderCredentialValue(value) {
+	if len(value) < spec.minLength || len(value) > 512 || isPlaceholderCredentialValue(value) || isSymbolicCredentialValue(value) {
 		return false
 	}
 	if credentialValueClasses(value) < spec.minClasses {
@@ -586,22 +586,15 @@ func isPlaceholderCredentialValue(value string) bool {
 		return true
 	}
 	lower := strings.ToLower(value)
-	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "arn:") {
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "arn:") ||
+		isCredentialReferenceValue(lower) {
 		return true
-	}
-	for _, prefix := range []string{
-		"$", "%", "process.env.", "process.env[", "os.getenv", "os.environ", "system.getenv",
-		"environment.getenvironmentvariable", "env(", "env.", "config.", "settings.",
-		"viper.get", "vault://", "vault.", "secret://", "var.", "local.", "module.",
-		"secrets.", "secrets[", "@microsoft.keyvault(",
-	} {
-		if strings.HasPrefix(lower, prefix) {
-			return true
-		}
 	}
 	for _, exact := range []string{
 		"none", "null", "undefined", "secret", "password", "passwd", "token", "apikey", "api_key",
-		"development", "production", "default", "true", "false",
+		"development", "production", "default", "true", "false", "nil", "n/a", "na", "unset",
+		"not set", "not-set", "not_set", "not configured", "not-configured", "not_configured",
+		"not provided", "not-provided", "not_provided", "missing", "required", "todo", "tbd", "fixme",
 	} {
 		if lower == exact {
 			return true
@@ -611,11 +604,14 @@ func isPlaceholderCredentialValue(value string) bool {
 		"example", "sample", "dummy", "changeme", "change-me", "change_me", "replace",
 		"placeholder", "<redacted", "redacted:", "your_", "your-", "your.", "not-a-real",
 		"not_real", "fake-key", "fake_key", "test-key", "test_key", "test-token", "test_token",
-		"sk-test", "${", "{{", "localhost", "xxxxx",
+		"sk-test", "${", "{{", "<%", "localhost", "xxxxx",
 	} {
 		if strings.Contains(lower, marker) {
 			return true
 		}
+	}
+	if isCredentialSentinelValue(value) || isCanonicalExampleCredential(value) {
+		return true
 	}
 	runes := []rune(value)
 	if len(runes) > 0 {
@@ -627,6 +623,135 @@ func isPlaceholderCredentialValue(value string) bool {
 			}
 		}
 		if allSame {
+			return true
+		}
+	}
+	return false
+}
+
+func isCredentialReferenceValue(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	if lower == "" {
+		return true
+	}
+	withoutSpace := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, lower)
+	for _, prefix := range []string{
+		"$", "%", "process.env.", "process.env[", "import.meta.env.", "import.meta.env[",
+		"deno.env.", "deno.env[", "bun.env.", "bun.env[", "os.getenv", "os.environ",
+		"system.getenv", "system.getproperty", "environment.getenvironmentvariable",
+		"std::env::", "env(", "env[", "env.", "getenv(", "get_env(", "get-env(",
+		"config(", "config[", "config.", "configuration(", "configuration[", "configuration.",
+		"settings(", "settings[", "settings.", "viper.get", ".values.", "values.",
+		"vault://", "vault.", "secret://", "env://", "ssm://", "keyvault://", "op://", "ref+",
+		"file://", "/run/secrets/", "/var/run/secrets/", "secretmanager.", "secretmanager(",
+		"secretsmanager.", "secretsmanager(", "aws_secretsmanager_", "keyvault.", "keyvault(",
+		"parameterstore.", "parameterstore(", "parameters(", "var.", "local.", "module.", "data.",
+		"secrets.", "secrets[", "@microsoft.keyvault(", "ref(", "reference(",
+	} {
+		if strings.HasPrefix(withoutSpace, prefix) {
+			return true
+		}
+	}
+	for _, marker := range []string{
+		".env.get(", "::env::", "getenv(", "get_env(", "getenvironmentvariable(",
+		"secretkeyref", "valuefrom", "secretsmanager", "secretmanager", "keyvault", "parameterstore",
+		"/run/secrets/", "/var/run/secrets/", "file://",
+	} {
+		if strings.Contains(withoutSpace, marker) {
+			return true
+		}
+	}
+	if strings.HasPrefix(withoutSpace, "*") && containsCredentialName(compactCredentialKey(withoutSpace)) {
+		return true
+	}
+	// Credential fields initialized from a function/property expression are
+	// references, not literal credentials. Requiring credential vocabulary in
+	// the expression avoids rejecting opaque values merely for punctuation.
+	if strings.ContainsAny(withoutSpace, "([") && containsCredentialName(compactCredentialKey(withoutSpace)) {
+		return true
+	}
+	return false
+}
+
+func isCredentialSentinelValue(value string) bool {
+	compact := compactCredentialKey(value)
+	if compact == "" {
+		return true
+	}
+	for _, exact := range []string{
+		"notset", "notconfigured", "notprovided", "notavailable", "missing", "required", "redacted", "masked",
+	} {
+		if compact == exact {
+			return true
+		}
+	}
+	if !containsCredentialName(compact) {
+		return false
+	}
+	for _, qualifier := range []string{
+		"your", "example", "sample", "dummy", "fake", "test", "mock", "demo", "placeholder",
+		"replace", "insert", "paste", "enter", "provide", "redacted", "masked", "hidden",
+		"changeme", "fillme", "here", "goeshere", "value", "unset", "notset", "notconfigured",
+		"notprovided", "notavailable", "missing", "required", "todo", "tbd", "fixme", "variable",
+	} {
+		if strings.Contains(compact, qualifier) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSymbolicCredentialValue(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return true
+	}
+	hasLower, hasUpper, hasDigit := false, false, false
+	for _, r := range value {
+		switch {
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		case r == '_', r == '-', r == '.', r == ':', r == '<', r == '>', r == '[', r == ']':
+		default:
+			return false
+		}
+	}
+	if !containsCredentialName(compactCredentialKey(value)) {
+		return false
+	}
+	// Environment/configuration identifiers normally contain no digits or are
+	// uppercase. Opaque credentials with mixed case and digits remain eligible.
+	return !hasDigit || (hasUpper && !hasLower)
+}
+
+func containsCredentialName(compact string) bool {
+	for _, marker := range []string{
+		"apikey", "accesskey", "secret", "clientsecret", "consumersecret", "token",
+		"password", "passwd", "credential", "privatekey",
+	} {
+		if strings.Contains(compact, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isCanonicalExampleCredential(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	for _, example := range []string{
+		"0123456789abcdef", "abcdef0123456789", "1234567890abcdef", "fedcba9876543210",
+		"0123456789abcdef0123456789abcdef", "abcdef0123456789abcdef0123456789",
+	} {
+		if lower == example {
 			return true
 		}
 	}

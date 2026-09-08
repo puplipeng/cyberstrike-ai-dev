@@ -27,6 +27,28 @@ type einoRunErrorHandlerConfig struct {
 	NativeCancelFallback func() error
 }
 
+const einoIterationLimitMessage = "本次任务已达到最大迭代次数，已停止继续自动执行。已完成的过程与结果已保留，可在当前会话中继续。"
+
+// isEinoRunIterationLimitError prefers the ADK sentinel so wrapped framework
+// errors remain classifiable without depending on Eino's rendered error text.
+// The text fallback keeps compatibility with older providers and checkpoints.
+func isEinoRunIterationLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, adk.ErrExceedMaxIterations) {
+		return true
+	}
+	return isEinoIterationLimitError(err)
+}
+
+// IsEinoIterationLimitError reports whether a run stopped at Eino's ReAct
+// iteration guard. Handlers use it to preserve partial output instead of
+// replacing it with an internal framework error.
+func IsEinoIterationLimitError(err error) bool {
+	return isEinoRunIterationLimitError(err)
+}
+
 func newEinoRunErrorHandler(cfg einoRunErrorHandlerConfig) *einoRunErrorHandler {
 	return &einoRunErrorHandler{
 		conversationID:       cfg.ConversationID,
@@ -64,16 +86,10 @@ func (h *einoRunErrorHandler) Handle(runErr error) error {
 		h.emitError(runErr, "")
 		return runErr
 	}
-	if isEinoIterationLimitError(runErr) {
+	if isEinoRunIterationLimitError(runErr) {
 		h.flushPending(runErr)
-		if h.progress != nil {
-			h.progress("iteration_limit_reached", runErr.Error(), map[string]interface{}{
-				"conversationId": h.conversationID,
-				"source":         "eino",
-				"orchestration":  h.orchMode,
-			})
-		}
-		h.emitError(runErr, "iteration_limit")
+		// The HTTP/SSE handler emits the single terminal error. Emitting either an
+		// iteration warning or another error here creates duplicate frontend cards.
 		return runErr
 	}
 	h.flushPending(runErr)
@@ -149,6 +165,13 @@ func einoUserFacingRunError(err error) einoRunUserError {
 		out.technicalError = err.Error()
 		return out
 	}
+	if isEinoRunIterationLimitError(err) {
+		out.kind = "iteration_limit"
+		out.summary = einoIterationLimitMessage
+		out.message = out.summary
+		out.technicalError = err.Error()
+		return out
+	}
 	var retryErr *adk.RetryExhaustedError
 	if !errors.As(err, &retryErr) {
 		return out
@@ -218,7 +241,7 @@ func EinoClientRunErrorMessage(err error) string {
 		return ""
 	}
 	userErr := einoUserFacingRunError(err)
-	if userErr.kind == "token_budget" {
+	if userErr.kind == "token_budget" || userErr.kind == "iteration_limit" {
 		return userErr.message
 	}
 	if userErr.retryExhausted {

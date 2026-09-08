@@ -111,6 +111,11 @@
         submitAssetImport: 'asset:write',
         saveAsset: 'asset:write',
         deleteAsset: 'asset:delete',
+        openAssetMonitorEditor: ['asset:write', 'project:write'],
+        saveAssetMonitor: ['asset:write', 'project:write'],
+        toggleAssetMonitorEnabled: ['asset:write', 'project:write'],
+        runAssetMonitorNow: ['asset:write', 'project:write', 'fofa:execute'],
+        deleteAssetMonitor: ['asset:delete', 'project:write'],
 
         // 任务队列
         showBatchImportModal: 'tasks:write',
@@ -244,7 +249,19 @@
         if (typeof fn !== 'function') return fn;
         if (fn.__rbacGuarded) return fn;
         const wrapped = function rbacGuardedHandler(...args) {
-            if (typeof requirePermission === 'function' && !requirePermission(permission)) {
+            if (Array.isArray(permission)) {
+                const allowed = typeof hasPermission !== 'function' || permission.every((item) => hasPermission(item));
+                if (!allowed) {
+                    const translated = typeof window.t === 'function' ? window.t('auth.forbidden') : '';
+                    const message = translated && translated !== 'auth.forbidden' ? translated : '权限不足';
+                    if (typeof notifyApiError === 'function') {
+                        notifyApiError(message);
+                    } else if (typeof showNotification === 'function') {
+                        showNotification(message, 'error');
+                    }
+                    return undefined;
+                }
+            } else if (typeof requirePermission === 'function' && !requirePermission(permission)) {
                 return undefined;
             }
             return fn.apply(this, args);

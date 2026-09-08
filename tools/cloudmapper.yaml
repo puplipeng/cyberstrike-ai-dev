@@ -1,8 +1,9 @@
 name: "cloudmapper"
 command: "python3"
 args:
-  - "D:/Projects/CyberStrikeAI/work/runtime/security-tools/bin/cloudmapper_runner.py"
-enabled: true
+  - "../runtime/security-tools/bin/cloudmapper_runner.py"
+# Requires the separately installed compatibility runner at the configured path.
+enabled: false
 short_description: "AWS网络可视化和安全分析工具"
 description: |
   CloudMapper Windows 兼容封装，提供轻量 AWS 盘点和凭据检测。

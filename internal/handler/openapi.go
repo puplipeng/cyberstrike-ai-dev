@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"cyberstrike-ai/internal/config"
 	"cyberstrike-ai/internal/database"
 
 	"github.com/gin-gonic/gin"
@@ -476,6 +477,7 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 					"type":     "object",
 					"required": []string{"tasks"},
 					"properties": map[string]interface{}{
+						"aiChannelId": map[string]interface{}{"type": "string", "description": "AI 通道 ID，随队列保存；省略时固定为创建时的默认通道"},
 						"title": map[string]interface{}{
 							"type":        "string",
 							"description": "任务标题（可选）",
@@ -893,7 +895,8 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 					"type":        "object",
 					"description": "Agent 运行与外部 MCP 防卡死保护配置",
 					"properties": map[string]interface{}{
-						"max_iterations":                         map[string]interface{}{"type": "integer", "description": "最大迭代次数"},
+						"max_iterations":                         map[string]interface{}{"type": "integer", "minimum": 0, "default": config.DefaultAgentMaxIterations, "description": "最大迭代次数；0=默认1000"},
+						"max_task_tokens":                        map[string]interface{}{"type": "integer", "minimum": -1, "default": config.DefaultMaxTaskTokens, "description": "单次任务累计 Token 预算；0=默认1亿；-1=不限"},
 						"tool_timeout_minutes":                   map[string]interface{}{"type": "integer", "description": "单次工具执行硬超时（分钟）"},
 						"tool_wait_timeout_seconds":              map[string]interface{}{"type": "integer", "description": "工具单轮等待秒数；到时返回 execution_id，worker 继续后台执行"},
 						"external_mcp_max_concurrent_per_server": map[string]interface{}{"type": "integer", "description": "单个外部 MCP server 并发上限；0=默认2；负数=不限制"},
@@ -4629,9 +4632,10 @@ func (h *OpenAPIHandler) GetOpenAPISpec(c *gin.Context) {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
-										"title":     map[string]interface{}{"type": "string", "description": "队列标题"},
-										"role":      map[string]interface{}{"type": "string", "description": "使用的角色名称"},
-										"agentMode": map[string]interface{}{"type": "string", "description": "代理模式", "enum": []string{"eino_single", "deep", "plan_execute", "supervisor"}},
+										"aiChannelId": map[string]interface{}{"type": "string", "description": "修改队列 AI 通道（必须先暂停）；省略则保持原通道"},
+										"title":       map[string]interface{}{"type": "string", "description": "队列标题"},
+										"role":        map[string]interface{}{"type": "string", "description": "使用的角色名称"},
+										"agentMode":   map[string]interface{}{"type": "string", "description": "代理模式", "enum": []string{"eino_single", "deep", "plan_execute", "supervisor"}},
 									},
 								},
 							},

@@ -1,8 +1,9 @@
 name: "hashpump"
-command: "D:/Projects/CyberStrikeAI/work/runtime/security-tools/venvs/pytools/Scripts/python.exe"
+command: "python3"
 args:
-  - "D:/Projects/CyberStrikeAI/work/runtime/security-tools/bin/hashpump_runner.py"
-enabled: true
+  - "../runtime/security-tools/bin/hashpump_runner.py"
+# Requires the separately installed compatibility runner at the configured path.
+enabled: false
 short_description: "哈希长度扩展攻击兼容工具"
 description: |
   HashPump Windows 兼容封装，当前提供 padding 和扩展消息元数据计算。

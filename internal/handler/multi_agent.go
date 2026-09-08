@@ -385,8 +385,7 @@ func (h *AgentHandler) MultiAgentLoopStream(c *gin.Context) {
 		h.logger.Error("Eino DeepAgent 执行失败", zap.Error(runErr))
 		taskStatus = "failed"
 		h.tasks.UpdateTaskStatus(conversationID, taskStatus)
-		clientErr := multiagent.EinoClientRunErrorMessage(runErr)
-		errMsg := "执行失败: " + clientErr
+		errMsg := einoRunFailureMessage(result, runErr)
 		if assistantMessageID != "" {
 			_, _ = h.db.Exec("UPDATE messages SET content = $1, updated_at = $2 WHERE id = $3", errMsg, time.Now(), assistantMessageID)
 			_ = h.db.AddProcessDetail(assistantMessageID, conversationID, "error", errMsg, nil)
@@ -514,8 +513,7 @@ func (h *AgentHandler) MultiAgentLoop(c *gin.Context) {
 				h.persistEinoAgentTraceForResume(prep.ConversationID, result)
 			}
 			h.logger.Error("Eino DeepAgent 执行失败", zap.Error(runErr))
-			clientErr := multiagent.EinoClientRunErrorMessage(runErr)
-			errMsg := "执行失败: " + clientErr
+			errMsg := einoRunFailureMessage(result, runErr)
 			if prep.AssistantMessageID != "" {
 				_, _ = h.db.Exec("UPDATE messages SET content = $1, updated_at = $2 WHERE id = $3", errMsg, time.Now(), prep.AssistantMessageID)
 			}

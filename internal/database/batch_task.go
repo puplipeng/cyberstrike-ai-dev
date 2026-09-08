@@ -15,6 +15,7 @@ type BatchTaskQueueRow struct {
 	Title                 sql.NullString
 	Role                  sql.NullString
 	AgentMode             sql.NullString
+	AIChannelID           sql.NullString
 	ScheduleMode          sql.NullString
 	CronExpr              sql.NullString
 	NextRunAt             sql.NullTime
@@ -58,7 +59,12 @@ func (db *DB) CreateBatchQueue(
 	concurrency int,
 	hitlConfig string,
 	tasks []map[string]interface{},
+	channelIDs ...string,
 ) error {
+	channelID := ""
+	if len(channelIDs) > 0 {
+		channelID = strings.TrimSpace(channelIDs[0])
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("开始事务失败: %w", err)
@@ -76,8 +82,8 @@ func (db *DB) CreateBatchQueue(
 		projectIDVal = strings.TrimSpace(projectID)
 	}
 	_, err = tx.Exec(
-		"INSERT INTO batch_task_queues (id, title, role, agent_mode, schedule_mode, cron_expr, next_run_at, schedule_enabled, project_id, concurrency, hitl_config, status, created_at, current_index) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
-		queueID, title, role, agentMode, scheduleMode, cronExpr, nextRunAtValue, 1, projectIDVal, concurrency, hitlConfig, "pending", now, 0,
+		"INSERT INTO batch_task_queues (id, title, role, agent_mode, schedule_mode, cron_expr, next_run_at, schedule_enabled, project_id, concurrency, hitl_config, status, created_at, current_index, ai_channel_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+		queueID, title, role, agentMode, scheduleMode, cronExpr, nextRunAtValue, 1, projectIDVal, concurrency, hitlConfig, "pending", now, 0, channelID,
 	)
 	if err != nil {
 		return fmt.Errorf("创建批量任务队列失败: %w", err)
@@ -106,7 +112,7 @@ func (db *DB) CreateBatchQueue(
 	return tx.Commit()
 }
 
-const batchQueueSelectColumns = `id, title, role, agent_mode, schedule_mode, cron_expr, next_run_at, schedule_enabled, last_schedule_trigger_at, last_schedule_error, last_run_error, project_id, concurrency, hitl_config, status, created_at, started_at, completed_at, current_index`
+const batchQueueSelectColumns = `id, title, role, agent_mode, schedule_mode, cron_expr, next_run_at, schedule_enabled, last_schedule_trigger_at, last_schedule_error, last_run_error, project_id, concurrency, hitl_config, status, created_at, started_at, completed_at, current_index, ai_channel_id`
 
 // GetBatchQueue 获取批量任务队列
 func (db *DB) GetBatchQueue(queueID string) (*BatchTaskQueueRow, error) {
@@ -115,7 +121,7 @@ func (db *DB) GetBatchQueue(queueID string) (*BatchTaskQueueRow, error) {
 	err := db.QueryRow(
 		"SELECT "+batchQueueSelectColumns+" FROM batch_task_queues WHERE id = $1",
 		queueID,
-	).Scan(&row.ID, &row.Title, &row.Role, &row.AgentMode, &row.ScheduleMode, &row.CronExpr, &row.NextRunAt, &row.ScheduleEnabled, &row.LastScheduleTriggerAt, &row.LastScheduleError, &row.LastRunError, &row.ProjectID, &row.Concurrency, &row.HITLConfig, &row.Status, &createdAt, &row.StartedAt, &row.CompletedAt, &row.CurrentIndex)
+	).Scan(&row.ID, &row.Title, &row.Role, &row.AgentMode, &row.ScheduleMode, &row.CronExpr, &row.NextRunAt, &row.ScheduleEnabled, &row.LastScheduleTriggerAt, &row.LastScheduleError, &row.LastRunError, &row.ProjectID, &row.Concurrency, &row.HITLConfig, &row.Status, &createdAt, &row.StartedAt, &row.CompletedAt, &row.CurrentIndex, &row.AIChannelID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -150,7 +156,7 @@ func (db *DB) GetAllBatchQueues() ([]*BatchTaskQueueRow, error) {
 	for rows.Next() {
 		var row BatchTaskQueueRow
 		var createdAt string
-		if err := rows.Scan(&row.ID, &row.Title, &row.Role, &row.AgentMode, &row.ScheduleMode, &row.CronExpr, &row.NextRunAt, &row.ScheduleEnabled, &row.LastScheduleTriggerAt, &row.LastScheduleError, &row.LastRunError, &row.ProjectID, &row.Concurrency, &row.HITLConfig, &row.Status, &createdAt, &row.StartedAt, &row.CompletedAt, &row.CurrentIndex); err != nil {
+		if err := rows.Scan(&row.ID, &row.Title, &row.Role, &row.AgentMode, &row.ScheduleMode, &row.CronExpr, &row.NextRunAt, &row.ScheduleEnabled, &row.LastScheduleTriggerAt, &row.LastScheduleError, &row.LastRunError, &row.ProjectID, &row.Concurrency, &row.HITLConfig, &row.Status, &createdAt, &row.StartedAt, &row.CompletedAt, &row.CurrentIndex, &row.AIChannelID); err != nil {
 			return nil, fmt.Errorf("扫描批量任务队列失败: %w", err)
 		}
 		parsedTime, parseErr := time.Parse("2006-01-02 15:04:05", createdAt)
@@ -222,7 +228,7 @@ func (db *DB) ListBatchQueuesForAccess(limit, offset int, status, keyword, userI
 	for rows.Next() {
 		var row BatchTaskQueueRow
 		var createdAt string
-		if err := rows.Scan(&row.ID, &row.Title, &row.Role, &row.AgentMode, &row.ScheduleMode, &row.CronExpr, &row.NextRunAt, &row.ScheduleEnabled, &row.LastScheduleTriggerAt, &row.LastScheduleError, &row.LastRunError, &row.ProjectID, &row.Concurrency, &row.HITLConfig, &row.Status, &createdAt, &row.StartedAt, &row.CompletedAt, &row.CurrentIndex); err != nil {
+		if err := rows.Scan(&row.ID, &row.Title, &row.Role, &row.AgentMode, &row.ScheduleMode, &row.CronExpr, &row.NextRunAt, &row.ScheduleEnabled, &row.LastScheduleTriggerAt, &row.LastScheduleError, &row.LastRunError, &row.ProjectID, &row.Concurrency, &row.HITLConfig, &row.Status, &createdAt, &row.StartedAt, &row.CompletedAt, &row.CurrentIndex, &row.AIChannelID); err != nil {
 			return nil, fmt.Errorf("扫描批量任务队列失败: %w", err)
 		}
 		parsedTime, parseErr := time.Parse("2006-01-02 15:04:05", createdAt)
@@ -413,10 +419,14 @@ func (db *DB) UpdateBatchQueueCurrentIndex(queueID string, currentIndex int) err
 }
 
 // UpdateBatchQueueMetadata 更新批量任务队列标题、角色、代理模式和并发数
-func (db *DB) UpdateBatchQueueMetadata(queueID, title, role, agentMode string, concurrency int) error {
+func (db *DB) UpdateBatchQueueMetadata(queueID, title, role, agentMode string, concurrency int, channelIDs ...string) error {
+	var channelID interface{}
+	if len(channelIDs) > 0 {
+		channelID = strings.TrimSpace(channelIDs[0])
+	}
 	_, err := db.Exec(
-		"UPDATE batch_task_queues SET title = $1, role = $2, agent_mode = $3, concurrency = $4 WHERE id = $5",
-		title, role, agentMode, concurrency, queueID,
+		"UPDATE batch_task_queues SET title = $1, role = $2, agent_mode = $3, concurrency = $4, ai_channel_id = COALESCE($6, ai_channel_id) WHERE id = $5",
+		title, role, agentMode, concurrency, queueID, channelID,
 	)
 	if err != nil {
 		return fmt.Errorf("更新批量任务队列元数据失败: %w", err)

@@ -26,7 +26,8 @@ ai:
       api_key: sk-...
       model: gpt-4.1
 agent:
-  max_iterations: 12000
+  max_iterations: 1000
+  max_task_tokens: 100000000
   tool_timeout_minutes: 60
 ```
 

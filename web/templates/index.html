@@ -31,15 +31,16 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260830-prehitl1">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260904-src6kskill1">
     <link rel="stylesheet" href="/static/css/chat-plan-progress.css?v=20260813-4">
     <link rel="stylesheet" href="/static/css/c2.css">
     <link rel="stylesheet" href="/static/vendor/xterm.css">
     <link rel="stylesheet" href="/static/css/ssh.css?v=1">
     <link rel="stylesheet" href="/static/css/vulnerability-intel.css?v=3">
-    <link rel="stylesheet" href="/static/css/github-leaks.css?v=20260902-rules2">
+    <link rel="stylesheet" href="/static/css/github-leaks.css?v=20260902-compact1">
+    <link rel="stylesheet" href="/static/css/asset-monitor.css?v=20260904-1">
     <link rel="stylesheet" href="/static/css/skill-library.css?v=3">
-    <script src="/static/js/router.js?v=20260901-ghleak1"></script>
+    <script src="/static/js/router.js?v=20260904-assetmonitor1"></script>
 </head>
 <body>
     <div id="login-overlay" class="login-overlay" style="display: flex;">
@@ -247,6 +248,7 @@
                         <div class="nav-submenu">
                             <div class="nav-submenu-item" data-page="asset-overview" onclick="switchPage('asset-overview')" data-i18n="nav.assetOverview">资产概览</div>
                             <div class="nav-submenu-item" data-page="asset-library" onclick="switchPage('asset-library')" data-i18n="nav.assetLibrary">资产库</div>
+                            <div class="nav-submenu-item" data-page="asset-monitor" data-require-permissions="asset:read project:read" onclick="switchPage('asset-monitor')" data-i18n="nav.assetMonitor">资产监控</div>
                             <div class="nav-submenu-item" data-page="info-collect" onclick="switchPage('info-collect')" data-i18n="nav.infoCollect">信息收集</div>
                         </div>
                     </div>
@@ -1855,6 +1857,21 @@
                     </div>
                 </div>
 
+                <!-- 项目资产监控页面 -->
+                <div id="page-asset-monitor" class="page asset-monitor-page" data-require-permissions="asset:read project:read">
+                    <div class="page-header">
+                        <div>
+                            <h2 data-i18n="assetMonitor.title">项目资产监控</h2>
+                            <p class="asset-monitor-subtitle" data-i18n="assetMonitor.subtitle">按项目和根域名定期发现公网资产，并标记每次新增。</p>
+                        </div>
+                        <div class="page-header-actions">
+                            <button id="asset-monitor-refresh" class="btn-secondary" type="button" onclick="refreshAssetMonitors()" data-i18n="assetMonitor.refresh">刷新</button>
+                            <button class="btn-primary" type="button" data-require-permissions="asset:write project:write" onclick="openAssetMonitorEditor()" data-i18n="assetMonitor.addMonitor">新建监控</button>
+                        </div>
+                    </div>
+                    <div id="asset-monitor-content" class="page-content"></div>
+                </div>
+
                 <!-- 资产库页面 -->
                 <div id="page-asset-library" class="page asset-page">
                     <div class="page-header">
@@ -2018,6 +2035,16 @@
                         <div class="modal-header"><div><h2 id="asset-scan-title" data-i18n="assets.scanTitle">扫描资产</h2><p id="asset-scan-subtitle" class="asset-page-subtitle"></p></div><span class="modal-close" onclick="closeAssetScanModal()">&times;</span></div>
                         <div class="modal-body">
                             <div id="asset-scan-targets" class="asset-scan-targets"></div>
+                            <section id="asset-scan-skill-guide" class="asset-scan-guide" aria-labelledby="asset-scan-skill-guide-title" data-skill-name="src-6k-asset-scan" data-skill-path="skills/src-6k-asset-scan/SKILL.md">
+                                <div class="asset-scan-guide-heading">
+                                    <div><h3 id="asset-scan-skill-guide-title" data-i18n="assets.skillGuideTitle">固定扫描指南</h3><p data-i18n="assets.skillGuideHint">发送到对话或创建批量任务时，平台会自动注入该指南，用户提示词无法移除或替换它。</p></div>
+                                    <span class="asset-scan-guide-badge" data-i18n="assets.skillGuideLocked">平台锁定</span>
+                                </div>
+                                <dl class="asset-scan-guide-details">
+                                    <div><dt data-i18n="assets.skillGuideName">指南名</dt><dd><code>src-6k-asset-scan</code></dd></div>
+                                    <div><dt data-i18n="assets.skillGuidePath">本地路径</dt><dd><code>skills/src-6k-asset-scan/SKILL.md</code></dd></div>
+                                </dl>
+                            </section>
                             <section class="asset-scan-approval" aria-labelledby="asset-scan-approval-title">
                                 <div class="asset-scan-approval-heading">
                                     <div><h3 id="asset-scan-approval-title" data-i18n="assets.approvalBeforeStart">启动前确认审批策略</h3><p id="asset-scan-approval-hint" data-i18n="assets.approvalBeforeStartHint">该策略会在任务创建前固定，启动后无需再去对话页关闭审批。</p></div>
@@ -2032,6 +2059,7 @@
                             <label class="asset-scan-prompt-label" for="asset-scan-prompt" data-i18n="assets.userPrompt">用户提示词</label>
                             <textarea id="asset-scan-prompt" class="asset-scan-prompt" rows="7"></textarea>
                             <p id="asset-scan-hint" class="form-hint" data-i18n="assets.promptHint">可使用 &#123;&#123;asset_id&#125;&#125;、&#123;&#123;target&#125;&#125;、&#123;&#123;host&#125;&#125;、&#123;&#123;ip&#125;&#125;、&#123;&#123;domain&#125;&#125;、&#123;&#123;port&#125;&#125; 占位符；创建任务时会为每个资产生成一条任务。</p>
+                            <div id="asset-scan-channel-wrap" class="form-group"><label for="asset-scan-ai-channel">扫描 AI 通道</label><select id="asset-scan-ai-channel" required></select><p class="form-hint">随队列保存，后续执行和重跑保持使用此通道。</p></div>
                             <label id="asset-scan-execute-wrap" class="checkbox-label"><input id="asset-scan-execute-now" type="checkbox" checked><span data-i18n="assets.executeNow">创建后立即执行</span></label>
                         </div>
                         <div class="modal-footer"><button class="btn-secondary" onclick="closeAssetScanModal()" data-i18n="common.cancel">取消</button><button id="asset-scan-submit" class="btn-primary" onclick="submitAssetScan()" data-i18n="assets.confirmSend">确认发送</button></div>
@@ -3826,12 +3854,12 @@
                                     <div class="settings-form">
                                         <div class="form-group">
                                             <label for="agent-max-iterations" data-i18n="settingsBasic.maxIterations">最大迭代次数</label>
-                                            <input type="number" id="agent-max-iterations" min="1" data-i18n="settingsBasic.iterationsPlaceholder" data-i18n-attr="placeholder" placeholder="30" />
+                                            <input type="number" id="agent-max-iterations" min="1" data-i18n="settingsBasic.iterationsPlaceholder" data-i18n-attr="placeholder" placeholder="1000" />
                                         </div>
                                         <div class="form-group">
                                             <label for="agent-max-task-tokens" data-i18n="settingsBasic.maxTaskTokens">单次任务累计 Token 预算</label>
-                                            <input type="number" id="agent-max-task-tokens" min="-1" step="1" placeholder="1000000" />
-                                            <small class="form-hint" data-i18n="settingsBasic.maxTaskTokensHint">默认100万；0沿用默认，-1不限。输入与输出累计计入，接近预算会提示，不足时停止新的模型调用；在途请求可能超过估算。</small>
+                                            <input type="number" id="agent-max-task-tokens" min="-1" step="1" placeholder="100000000" />
+                                            <small class="form-hint" data-i18n="settingsBasic.maxTaskTokensHint">默认1亿；0沿用默认，-1不限。输入与输出累计计入，接近预算会提示，不足时停止新的模型调用；在途请求可能超过估算。</small>
                                         </div>
                                         <div class="form-group">
                                             <label><input type="checkbox" id="eino-tool-search-enable" /> <span data-i18n="settingsBasic.toolSearchEnable">按需加载工具参数</span></label>
@@ -4129,7 +4157,7 @@
                                             <div class="ghl-settings-rules-header">
                                                 <div>
                                                     <strong>监控规则</strong>
-                                                    <small class="form-hint">最多 32 条；每条最多 6 个同时命中词。规则按顺序串行请求。</small>
+                                                    <small class="form-hint">最多 40 条；每条最多 6 个同时命中词。规则按顺序串行请求。</small>
                                                 </div>
                                                 <button type="button" id="github-leak-rule-add" class="btn-secondary btn-small">新增规则</button>
                                             </div>
@@ -4140,6 +4168,11 @@
                                             <label for="github-leak-interval">监控周期（秒）</label>
                                             <input type="number" id="github-leak-interval" min="31" max="86400" value="7200" />
                                             <small class="form-hint">默认 7200 秒（2 小时）；每轮逐条串行执行启用规则，规则之间由服务端限速。</small>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="github-leak-lookback-days">检索回溯天数</label>
+                                            <input type="number" id="github-leak-lookback-days" min="1" max="3650" value="365" />
+                                            <small class="form-hint">默认 365 天，允许 1–3650 天；只保留默认分支中目标路径最近提交时间位于回溯窗口内的发现。</small>
                                         </div>
                                         <div class="form-group">
                                             <label for="github-leak-timeout">HTTP 超时（秒）</label>
@@ -6149,6 +6182,10 @@
                     <div class="form-hint" style="margin-top: 4px;" data-i18n="batchImportModal.projectHint">可为队列绑定项目；留空则不绑定项目上下文。</div>
                 </div>
                 <div class="form-group">
+                    <label for="batch-queue-ai-channel">AI 通道（随队列保存）</label>
+                    <select id="batch-queue-ai-channel" required></select>
+                </div>
+                <div class="form-group">
                     <label for="batch-queue-agent-mode" data-i18n="batchImportModal.agentMode">代理模式</label>
                     <select id="batch-queue-agent-mode">
                         <option value="eino_single" data-i18n="chat.agentModeEinoSingle">Eino 单代理（ADK）</option>
@@ -6825,21 +6862,21 @@
     <script src="/static/js/i18n.js?v=20260830-dismiss1"></script>
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/builtin-tools.js"></script>
-    <script src="/static/js/auth.js?v=20260901-ghleak1"></script>
+    <script src="/static/js/auth.js?v=20260904-assetmonitor1"></script>
     <script src="/static/js/modal.js"></script>
     <script src="/static/js/ui-dialog.js"></script>
     <script src="/static/js/notifications.js?v=20260830-dismiss1"></script>
     <script src="/static/js/info-collect.js?v=20260830-dismiss1"></script>
-    <script src="/static/js/assets.js?v=20260830-prehitl1"></script>
+    <script src="/static/js/assets.js?v=20260904-src6kskill1&amp;channels=20260906"></script>
     <script src="/static/js/agents.js"></script>
     <script src="/static/js/dashboard.js?v=20260829-1"></script>
     <script src="/static/js/chat-scroll.js?v=20260830-pageview1"></script>
-    <script src="/static/js/monitor.js?v=20260830-codexargs1"></script>
-    <script src="/static/js/chat.js?v=20260830-pageview1"></script>
+    <script src="/static/js/monitor.js?v=20260903-iterlimit1"></script>
+    <script src="/static/js/chat.js?v=20260903-iterlimit1"></script>
     <script src="/static/js/chat-plan-progress.js?v=20260815-1"></script>
     <script src="/static/js/hitl.js?v=20260819-1"></script>
-    <script src="/static/js/github-leak-rules.js?v=20260902-rules1"></script>
-    <script src="/static/js/settings.js?v=20260902-ghleak-rules1"></script>
+    <script src="/static/js/github-leak-rules.js?v=20260902-rules2"></script>
+    <script src="/static/js/settings.js?v=20260903-budget100m1"></script>
     <script src="/static/js/audit-datetime-picker.js"></script>
     <script src="/static/js/audit.js?v=20260830-dismiss1"></script>
     <script src="/static/js/wechat-robot.js"></script>
@@ -6852,18 +6889,19 @@
     <script src="/static/js/projects.js?v=20260829-1"></script>
     <script src="/static/js/vulnerability.js?v=15"></script>
     <script src="/static/js/vulnerability-intel.js?v=3"></script>
-    <script src="/static/js/github-leaks.js?v=20260902-partial2"></script>
+    <script src="/static/js/github-leaks.js?v=20260902-lookback1"></script>
+    <script src="/static/js/asset-monitor.js?v=20260904-1"></script>
     <script src="/static/js/skill-library.js?v=5"></script>
     <script src="/static/js/ssh.js?v=20260829-fixes1"></script>
     <script src="/static/js/webshell.js?v=20260830-codexargs1"></script>
     <script src="/static/js/chat-files.js"></script>
-    <script src="/static/js/tasks.js"></script>
+    <script src="/static/js/tasks.js?v=20260906-channels1"></script>
     <script src="/static/js/workflow-package-client.js"></script>
     <script src="/static/js/workflows.js?v=20260830-dismiss1"></script>
     <script src="/static/js/roles.js"></script>
     <script src="/static/js/rbac.js"></script>
     <script src="/static/js/authenticated-events.js?v=20260829-security1"></script>
     <script src="/static/js/c2.js?v=20260829-security1"></script>
-    <script src="/static/js/rbac-guards.js?v=20260717-1"></script>
+    <script src="/static/js/rbac-guards.js?v=20260904-assetmonitor1"></script>
 </body>
 </html>

@@ -1318,6 +1318,9 @@ func (db *DB) migrateBatchTaskQueuesTable() error {
 	}
 
 	// 每个批量队列固定自己的审批策略，避免执行后才继承全局审批设置。
+	if _, err := db.Exec("ALTER TABLE batch_task_queues ADD COLUMN IF NOT EXISTS ai_channel_id TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate batch queue AI channel: %w", err)
+	}
 	var hitlConfigCount int
 	err = db.QueryRow("SELECT COUNT(*) FROM information_schema.columns WHERE table_name='batch_task_queues' AND column_name='hitl_config'").Scan(&hitlConfigCount)
 	if err != nil {

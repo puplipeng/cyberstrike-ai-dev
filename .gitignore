@@ -80,3 +80,27 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+
+# Local imported skill packages and source archives
+skills/src-6k-asset-scan/
+docs/vendor/src-6k-skill/
+# Local build state and scan artifacts (never publish)
+.gotmp/
+pgdata/
+models/
+ollama-profile/
+ssh-vault/
+*.pid
+*.dump
+*.sql.gz
+/blob_*
+/ssrf_*
+/scan_*.json
+/*_report.json
+/*_results.json
+/*_response.html
+/*_page.html
+/nmap_output.txt
+/nuclei_results.txt
+
+.audit/

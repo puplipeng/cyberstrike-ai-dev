@@ -140,7 +140,11 @@ func newEinoAgenticChatModelFactory(
 		if mode == einoModelModePlanner {
 			modelCfg.ExtraFields = reasoning.AgenticOpenAIPlannerExtraFields(&oa)
 		}
-		return agenticopenai.NewChatModel(ctx, modelCfg)
+		baseModel, err := agenticopenai.NewChatModel(ctx, modelCfg)
+		if err != nil {
+			return nil, err
+		}
+		return newAgenticStreamIndexRepairModel(baseModel), nil
 	}
 }
 

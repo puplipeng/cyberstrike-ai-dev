@@ -17,7 +17,7 @@ skill_library:
 
 Embedding 地址只接受字面量 loopback IP 的 HTTP origin，不使用代理、聊天 API Key 或外部模型服务，不跟随重定向。生产配置应固定模型 digest；更换模型后更新 digest、重启并重建索引。不要把不同模型的向量混用。
 
-本机部署位于 `D:\Projects\CyberStrikeAI`。模型、数据库、Ollama 配置和临时目录均位于其 `work` 下。使用 `outputs/start-local.ps1` 启动应用、PostgreSQL 和 Embedding 服务；`outputs/stop-local.ps1` 停止三者。新增 PoC 文本源码放入 `work/cyberstrike-ai-dev/library_pocs`，不需要额外的 API Key。
+部署目录由使用者选择。数据库与模型目录应放在源码目录之外；Windows 本地启动脚本及约定目录见 `scripts/start-windows-local.ps1`。新增 PoC 文本源码放入配置的 `pocs_dir`，不需要额外的 API Key。
 
 ## 使用
 
@@ -39,7 +39,7 @@ Embedding 地址只接受字面量 loopback IP 的 HTTP origin，不使用代理
 
 共享目录的读取要求全局 `skills:read`，索引、元数据和关联修改还要求全局 `skills:write`。变更记录写入 `skill_library_audit`。不会导入项目私有漏洞记录。PoC 与文档在前端按纯文本转义展示。
 
-只读取配置的目录中允许扩展名的 UTF-8 文本；每文件最多 1 MiB，总计最多 10000 文件，限制目录深度，跳过软链接、隐藏项、二进制及明显的私钥/API Key 内容。这只是有限的敏感内容检查，不代替人工检查。首次导入失败应查看索引状态和 D 盘日志。
+只读取配置的目录中允许扩展名的 UTF-8 文本；每文件最多 1 MiB，总计最多 10000 文件，限制目录深度，跳过软链接、隐藏项、二进制及明显的私钥/API Key 内容。这只是有限的敏感内容检查，不代替人工检查。首次导入失败应查看索引状态和服务端日志。
 
 当前实现不包含文件上传、自动抓取 PoC、PoC 自动执行、历史版本回放，也没有自动把检索结果注入 Agent 执行链。
 

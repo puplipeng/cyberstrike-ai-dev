@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const githubLeaks = require('./github-leaks.js');
 
 test('finding HTML escapes untrusted metadata and never reads raw secret fields', () => {
-    const rawSecret = 'ghp_' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
+    const rawSecret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
     const finding = {
         id: 'leak"><img src=x onerror=alert(1)>',
         status: 'new',
@@ -50,7 +50,7 @@ test('finding rows prefer the rule name and retain the canonical query', () => {
 });
 
 test('runtime renders every named rule, canonical query and enabled state safely', () => {
-    const rawToken = 'ghp_' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
+    const rawToken = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
     const html = githubLeaks.runtimeRulesHTML({
         rules: [
             { name: 'example-corp-clientid', enabled: true, query: '"clientid" AND "vendor.example" in:file', last_status: 'success' },
@@ -60,6 +60,9 @@ test('runtime renders every named rule, canonical query and enabled state safely
             { name: '<img src=x onerror=alert(1)>', enabled: false, query: '<script>bad()</script>', last_status: 'error', last_error: `<script>bad()</script> token=${rawToken}` },
         ],
     });
+    assert.match(html, /^<details class="ghl-runtime-rules-wrap">/);
+    assert.match(html, /class="ghl-runtime-rules-count">5<\/span>/);
+    assert.ok(!html.includes('<details class="ghl-runtime-rules-wrap" open>'));
     assert.match(html, /example-corp-clientid/);
     assert.match(html, /已启用/);
     assert.match(html, /已停用/);
@@ -78,11 +81,36 @@ test('runtime renders every named rule, canonical query and enabled state safely
     assert.ok(!html.includes(rawToken));
 });
 
-test('the expanded rule inventory is contained in its own bounded scroll region', () => {
+test('runtime keeps all configured rules through the 40-rule settings limit', () => {
+    const thirtyThree = Array.from({ length: 33 }, (_, index) => ({
+        name: `rule-${index + 1}`,
+        enabled: true,
+        query: `"term-${index + 1}" in:file`,
+    }));
+    assert.equal(githubLeaks.normalizeRuntimeRules({ rules: thirtyThree }).length, 33);
+    assert.match(githubLeaks.runtimeRulesHTML({ rules: thirtyThree }), /class="ghl-runtime-rules-count">33<\/span>/);
+
+    const fortyOne = [...thirtyThree, ...Array.from({ length: 8 }, (_, index) => ({
+        name: `rule-${index + 34}`,
+        enabled: true,
+        query: `"term-${index + 34}" in:file`,
+    }))];
+    const bounded = githubLeaks.normalizeRuntimeRules({ rules: fortyOne });
+    assert.equal(bounded.length, 40);
+    assert.equal(bounded.at(-1).name, 'rule-40');
+});
+
+test('the runtime rule inventory is collapsed by default and bounded when expanded', () => {
     const css = fs.readFileSync(require.resolve('../css/github-leaks.css'), 'utf8');
-    assert.match(css, /\.ghl-runtime-rules\{[^}]*max-height:min\(44vh,420px\)/);
+    const expanded = githubLeaks.runtimeRulesHTML({ rules: [{ name: 'one', enabled: true, query: '"one" in:file' }] }, true);
+    assert.match(expanded, /^<details class="ghl-runtime-rules-wrap" open>/);
+    assert.match(css, /\.ghl-runtime-rules-summary\{[^}]*cursor:pointer/);
+    assert.match(css, /\.ghl-runtime-rules\{[^}]*max-height:min\(22vh,180px\)/);
     assert.match(css, /\.ghl-runtime-rules\{[^}]*overflow-y:auto/);
     assert.match(css, /\.ghl-runtime-rules\{[^}]*overscroll-behavior:contain/);
+    assert.match(css, /\.ghl-table-wrap\{[^}]*flex:1 0 260px/);
+    assert.match(css, /\.ghl-table-wrap\{[^}]*min-height:240px/);
+    assert.doesNotMatch(css, /\.ghl-runtime \.ghl-runtime-rule\{[^}]*display:flex/);
 });
 
 test('safeGitHubURL only allows credential-free github.com HTTPS links', () => {
@@ -252,6 +280,7 @@ function uiHarness(hash = '#github-leaks', permissionCheck = () => true) {
                     last_warning: options.lastWarning || '',
                     rate_remaining: options.rateRemaining === undefined ? 20 : options.rateRemaining,
                     request_timeout_seconds: 45,
+                    lookback_days: options.lookbackDays === undefined ? 365 : options.lookbackDays,
                     keywords: ['storage-service', 'vendor.example'],
                     query: '"storage-service" AND "vendor.example" in:file',
                 }));
@@ -280,6 +309,7 @@ test('running and idle refreshes use bounded polling intervals', async () => {
     await flush();
     assert.equal(idle.timers.filter(timer => !timer.cleared).at(-1).delay, 30000);
     assert.ok(idle.element('github-leaks-runtime').innerHTML.includes('&quot;storage-service&quot; AND &quot;vendor.example&quot; in:file'));
+    assert.ok(idle.element('github-leaks-runtime').innerHTML.includes('回溯天数：365'));
     assert.ok(!idle.element('github-leaks-content').innerHTML.includes('id="github-leaks-keyword"'));
 
     const unknownRate = uiHarness();
@@ -288,6 +318,21 @@ test('running and idle refreshes use bounded polling intervals', async () => {
     await flush();
     assert.ok(unknownRate.element('github-leaks-runtime').innerHTML.includes('API 剩余额度：—'));
     assert.ok(!unknownRate.element('github-leaks-runtime').innerHTML.includes('API 剩余额度：-1'));
+});
+
+test('runtime refresh preserves an expanded rule inventory', async () => {
+    const harness = uiHarness();
+    harness.ui.init();
+    harness.resolveRefresh(harness.pending.splice(0));
+    await flush();
+
+    const runtime = harness.element('github-leaks-runtime');
+    runtime.querySelector = selector => selector === '.ghl-runtime-rules-wrap' ? { open: true } : null;
+    const refreshPromise = harness.element('github-leaks-refresh').listeners.click();
+    harness.resolveRefresh(harness.pending.splice(0));
+    await refreshPromise;
+
+    assert.match(runtime.innerHTML, /<details class="ghl-runtime-rules-wrap" open>/);
 });
 
 test('partial coverage and partial rule failures are warnings instead of complete failures', async () => {

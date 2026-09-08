@@ -1,0 +1,12 @@
+title = "CyberStrikeAI source publication checks"
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Pinned xterm vendor code: FourKeyMap property assignment, not a credential"
+condition = "AND"
+paths = ['''^.*web/static/vendor/xterm\.js$''']
+regexTarget = "match"
+regexes = ['''^t\.FourKeyMap=t\.TwoKeyMap=void ''']

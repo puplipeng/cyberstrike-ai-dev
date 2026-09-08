@@ -11,7 +11,7 @@ func TestSettingsNormalizeDefaultsAndCanonicalizesKeywords(t *testing.T) {
 	got, err := (Settings{
 		Token:          "  unit-test-token  ",
 		FingerprintKey: "  unit-test-fingerprint-key  ",
-		Keywords:       []string{" storage-service ", "storage-service", "vendor.example"},
+		Keywords:       []string{" storage-service ", "STORAGE-SERVICE", "vendor.example"},
 	}).Normalize()
 	if err != nil {
 		t.Fatal(err)
@@ -20,8 +20,8 @@ func TestSettingsNormalizeDefaultsAndCanonicalizesKeywords(t *testing.T) {
 		t.Fatal("secret settings were not trimmed")
 	}
 	if got.IntervalSeconds != DefaultIntervalSeconds || got.RequestTimeoutSeconds != DefaultTimeoutSeconds ||
-		got.PollIntervalSeconds != DefaultPollSeconds || got.MaxResultsPerKeyword != DefaultMaxResults {
-		t.Fatalf("defaults = interval:%d timeout:%d poll:%d max:%d", got.IntervalSeconds, got.RequestTimeoutSeconds, got.PollIntervalSeconds, got.MaxResultsPerKeyword)
+		got.PollIntervalSeconds != DefaultPollSeconds || got.MaxResultsPerKeyword != DefaultMaxResults || got.LookbackDays != DefaultLookbackDays {
+		t.Fatalf("defaults = interval:%d timeout:%d poll:%d max:%d lookback:%d", got.IntervalSeconds, got.RequestTimeoutSeconds, got.PollIntervalSeconds, got.MaxResultsPerKeyword, got.LookbackDays)
 	}
 	if len(got.Keywords) != 2 || got.Keywords[0] != "storage-service" || got.Keywords[1] != "vendor.example" {
 		t.Fatalf("keywords = %#v", got.Keywords)
@@ -69,6 +69,19 @@ func TestKeywordRuleRequiresAllEscapedLiteralsInOneFile(t *testing.T) {
 	}
 }
 
+func TestKeywordRuleSupportsStandaloneUnicodeLiteral(t *testing.T) {
+	for _, keyword := range []string{"学城", "乐享"} {
+		rule, err := newKeywordRule([]string{keyword})
+		if err != nil {
+			t.Fatalf("newKeywordRule(%q): %v", keyword, err)
+		}
+		want := `"` + keyword + `" in:file`
+		if rule.Query != want {
+			t.Fatalf("query = %q, want %q", rule.Query, want)
+		}
+	}
+}
+
 func TestSettingsNormalizeEnforcesSafetyBounds(t *testing.T) {
 	tooMany := make([]string, MaxKeywords+1)
 	for i := range tooMany {
@@ -83,6 +96,8 @@ func TestSettingsNormalizeEnforcesSafetyBounds(t *testing.T) {
 		{name: "negative timeout", settings: Settings{RequestTimeoutSeconds: -1, Keywords: []string{"storage-service"}}},
 		{name: "excessive timeout", settings: Settings{RequestTimeoutSeconds: 301, Keywords: []string{"storage-service"}}},
 		{name: "excessive results", settings: Settings{MaxResultsPerKeyword: 101, Keywords: []string{"storage-service"}}},
+		{name: "negative lookback", settings: Settings{LookbackDays: -1, Keywords: []string{"storage-service"}}},
+		{name: "excessive lookback", settings: Settings{LookbackDays: MaxLookbackDays + 1, Keywords: []string{"storage-service"}}},
 		{name: "too many keywords", settings: Settings{Keywords: tooMany}},
 		{name: "one byte keyword", settings: Settings{Keywords: []string{"x"}}},
 		{name: "overlong utf8 keyword", settings: Settings{Keywords: []string{strings.Repeat("中", 67)}}},
@@ -149,7 +164,7 @@ func TestSettingsNamedRuleValidation(t *testing.T) {
 		}}},
 		{name: "duplicate canonical query", settings: Settings{Rules: []Rule{
 			{Enabled: true, Name: "one", Keywords: []string{"vendor.example", "clientid"}},
-			{Enabled: true, Name: "two", Keywords: []string{"CLIENTID", "vendor.example"}},
+			{Enabled: true, Name: "two", Keywords: []string{"CLIENTID", "VENDOR.EXAMPLE"}},
 		}}},
 		{name: "empty keywords", settings: Settings{Rules: []Rule{{Enabled: false, Name: "empty"}}}},
 		{name: "control in name", settings: Settings{Rules: []Rule{{Enabled: true, Name: "bad\nname", Keywords: []string{"clientid"}}}}},
@@ -177,6 +192,9 @@ func TestSettingsRejectsMoreThanMaxRules(t *testing.T) {
 	rules := make([]Rule, MaxRules+1)
 	for i := range rules {
 		rules[i] = Rule{Enabled: true, Name: fmt.Sprintf("rule-%d", i), Keywords: []string{fmt.Sprintf("keyword-%d", i)}}
+	}
+	if _, err := (Settings{Rules: rules[:MaxRules]}).Normalize(); err != nil {
+		t.Fatalf("maximum of %d rules was rejected: %v", MaxRules, err)
 	}
 	if _, err := (Settings{Rules: rules}).Normalize(); err == nil {
 		t.Fatalf("more than %d rules were accepted", MaxRules)

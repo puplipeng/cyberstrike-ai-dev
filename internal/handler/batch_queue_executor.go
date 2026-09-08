@@ -22,6 +22,20 @@ import (
 
 const batchQueueWorkerIdlePoll = 200 * time.Millisecond
 
+// Explicit queue channels must never fall back to an unrelated global channel.
+// Empty IDs on legacy queues retain the old default behavior until edited.
+func (h *AgentHandler) configForBatchAIChannel(channelID string) (*config.Config, string, error) {
+	if h == nil || h.config == nil {
+		return nil, "", fmt.Errorf("服务器配置未加载")
+	}
+	if strings.TrimSpace(channelID) != "" || len(h.config.AI.Channels) > 0 {
+		if _, _, ok := h.config.AI.ResolveChannel(channelID); !ok {
+			return nil, channelID, fmt.Errorf("批量任务 AI 通道不存在，请重新选择: %s", channelID)
+		}
+	}
+	return h.configForAIChannel(channelID)
+}
+
 // executeBatchQueue 使用并发 worker 池执行批量任务队列。
 func (h *AgentHandler) executeBatchQueue(queueID string) {
 	defer h.batchTaskManager.UnmarkQueueExecutor(queueID)
@@ -111,6 +125,12 @@ func (h *AgentHandler) tryFinalizeBatchQueue(queueID string) {
 
 // executeOneBatchSubTask 执行单条批量子任务（各自独立会话）。
 func (h *AgentHandler) executeOneBatchSubTask(queueID string, queue *BatchTaskQueue, task *BatchTask) {
+	runConfig, channelID, channelErr := h.configForBatchAIChannel(queue.AIChannelID)
+	if channelErr != nil {
+		h.batchTaskManager.UpdateTaskStatus(queueID, task.ID, BatchTaskStatusFailed, "", channelErr.Error())
+		return
+	}
+	h.logger.Info("批量任务模型通道", zap.String("queueId", queueID), zap.String("taskId", task.ID), zap.String("aiChannelId", channelID), zap.String("model", runConfig.OpenAI.Model))
 	ownerUserID := h.db.GetResourceOwner("batch_task", queueID)
 	access, accessErr := h.db.ResolveRBACAccess(ownerUserID)
 	if accessErr != nil || access == nil || !access.User.Enabled {
@@ -188,7 +208,7 @@ func (h *AgentHandler) executeOneBatchSubTask(queueID string, queue *BatchTaskQu
 
 	principalCtx := authctx.WithPrincipal(context.Background(), principal)
 	baseCtx, cancelWithCause := context.WithCancelCause(principalCtx)
-	taskCtx, timeoutCancel := context.WithTimeout(baseCtx, 6*time.Hour)
+	taskCtx, timeoutCancel := context.WithTimeout(baseCtx, 10*time.Hour)
 
 	registered := false
 	finishStatus := "completed"
@@ -271,12 +291,12 @@ func (h *AgentHandler) executeOneBatchSubTask(queueID string, queue *BatchTaskQu
 	var runErr error
 	switch {
 	case useBatchMulti:
-		resultMA, runErr = multiagent.RunDeepAgent(taskCtx, h.config, &h.config.MultiAgent, h.agent, h.db, h.logger, conversationID, h.conversationProjectID(conversationID), finalMessage, []agent.ChatMessage{}, roleTools, progressCallback, h.agentsMarkdownDir, batchOrch, nil, h.agentSessionContextBlock(conversationID))
+		resultMA, runErr = multiagent.RunDeepAgent(taskCtx, runConfig, &runConfig.MultiAgent, h.agent, h.db, h.logger, conversationID, h.conversationProjectID(conversationID), finalMessage, []agent.ChatMessage{}, roleTools, progressCallback, h.agentsMarkdownDir, batchOrch, nil, h.agentSessionContextBlock(conversationID))
 	default:
 		if h.config == nil {
 			runErr = fmt.Errorf("服务器配置未加载")
 		} else {
-			resultMA, runErr = multiagent.RunEinoSingleChatModelAgent(taskCtx, h.config, &h.config.MultiAgent, h.agent, h.db, h.logger, conversationID, h.conversationProjectID(conversationID), finalMessage, []agent.ChatMessage{}, roleTools, progressCallback, nil, h.agentSessionContextBlock(conversationID))
+			resultMA, runErr = multiagent.RunEinoSingleChatModelAgent(taskCtx, runConfig, &runConfig.MultiAgent, h.agent, h.db, h.logger, conversationID, h.conversationProjectID(conversationID), finalMessage, []agent.ChatMessage{}, roleTools, progressCallback, nil, h.agentSessionContextBlock(conversationID))
 		}
 	}
 
@@ -415,7 +435,7 @@ func (h *AgentHandler) handleBatchSubTaskRunError(
 
 	h.logger.Error("批量任务执行失败", zap.String("queueId", queueID), zap.String("taskId", task.ID), zap.String("conversationId", conversationID), zap.Error(runErr))
 	clientErr := multiagent.EinoClientRunErrorMessage(runErr)
-	errorMsg := "执行失败: " + clientErr
+	errorMsg := einoRunFailureMessage(resultMA, runErr)
 	if assistantMessageID != "" {
 		if _, updateErr := h.db.Exec(
 			"UPDATE messages SET content = $1, updated_at = $2 WHERE id = $3",
@@ -428,5 +448,5 @@ func (h *AgentHandler) handleBatchSubTaskRunError(
 			h.logger.Warn("保存错误详情失败", zap.String("queueId", queueID), zap.String("taskId", task.ID), zap.Error(err))
 		}
 	}
-	h.batchTaskManager.UpdateTaskStatus(queueID, task.ID, BatchTaskStatusFailed, "", clientErr)
+	h.batchTaskManager.UpdateTaskStatusWithConversationID(queueID, task.ID, BatchTaskStatusFailed, errorMsg, clientErr, conversationID)
 }

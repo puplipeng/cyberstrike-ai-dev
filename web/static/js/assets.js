@@ -1,6 +1,10 @@
 const ASSET_PAGE_SIZE_KEY = 'cyberstrike.asset_page_size';
 const ASSET_SAVED_VIEWS_KEY = 'cyberstrike.asset_saved_views';
 const ASSET_SCAN_HITL_STORAGE_KEY = 'cyberstrike.asset_scan_hitl';
+const ASSET_SCAN_SKILL_GUIDE = Object.freeze({
+    name: 'src-6k-asset-scan',
+    path: 'skills/src-6k-asset-scan/SKILL.md'
+});
 function getAssetPageSize() {
     try {
         const value = Number(localStorage.getItem(ASSET_PAGE_SIZE_KEY));
@@ -717,6 +721,85 @@ function assetTargetLabel(asset) {
     return asset.host || asset.domain || asset.ip || '-';
 }
 
+function assetExternalURL(asset) {
+    if (!asset || typeof asset !== 'object') return '';
+    const hasUnsafeCharacters = value => /[\u0000-\u0020\u007f\\]/.test(String(value || ''));
+    const hostValue = String(asset.host || '');
+    const rawHost = hostValue.trim();
+    if (hostValue && (hostValue !== rawHost || hasUnsafeCharacters(hostValue))) return '';
+    if (rawHost && /^[a-z][a-z0-9+.-]*:\/\//i.test(rawHost)) {
+        if (!/^https?:\/\//i.test(rawHost) || hasUnsafeCharacters(rawHost)) return '';
+        try {
+            const parsed = new URL(rawHost);
+            if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) return '';
+            return parsed.href;
+        } catch (error) {
+            return '';
+        }
+    }
+    if (rawHost && /^[a-z][a-z0-9+.-]*:/i.test(rawHost) && (rawHost.match(/:/g) || []).length === 1 && !/:\d+$/.test(rawHost)) return '';
+
+    const protocolValue = String(asset.protocol || '');
+    if (protocolValue !== protocolValue.trim() || hasUnsafeCharacters(protocolValue.trim())) return '';
+    const protocol = protocolValue.trim().toLowerCase().replace(/:$/, '');
+    if (protocol && protocol !== 'http' && protocol !== 'https') return '';
+    const rawPortText = String(asset.port == null ? '' : asset.port);
+    if (rawPortText !== rawPortText.trim() || hasUnsafeCharacters(rawPortText.trim())) return '';
+    const portText = rawPortText.trim();
+    let declaredPort = 0;
+    if (portText && portText !== '0') {
+        if (!/^\d+$/.test(portText)) return '';
+        declaredPort = Number(portText);
+        if (!Number.isInteger(declaredPort) || declaredPort < 1 || declaredPort > 65535) return '';
+    }
+
+    const authorityValue = String(rawHost || asset.domain || asset.ip || '');
+    let authority = authorityValue.trim();
+    if (!authority || authority !== authorityValue || hasUnsafeCharacters(authority) || /[\/?#@]/.test(authority)) return '';
+    if (/^[a-z][a-z0-9+.-]*:/i.test(authority) && !/:\d+$/.test(authority) && !authority.startsWith('[')) return '';
+    if (!authority.startsWith('[') && (authority.match(/:/g) || []).length > 1) authority = `[${authority}]`;
+    const authorityPortMatch = authority.match(/^\[[^\]]+\]:(\d+)$/) || authority.match(/^[^:]+:(\d+)$/);
+    const authorityPort = authorityPortMatch ? Number(authorityPortMatch[1]) : 0;
+    if (authorityPort && (!Number.isInteger(authorityPort) || authorityPort < 1 || authorityPort > 65535)) return '';
+
+    let parsedAuthority;
+    try {
+        parsedAuthority = new URL(`http://${authority}/`);
+    } catch (error) {
+        return '';
+    }
+    if (!parsedAuthority.hostname || parsedAuthority.username || parsedAuthority.password || parsedAuthority.pathname !== '/' || parsedAuthority.search || parsedAuthority.hash) return '';
+    const embeddedPort = parsedAuthority.port ? Number(parsedAuthority.port) : authorityPort;
+    if (declaredPort && embeddedPort && declaredPort !== embeddedPort) return '';
+    const port = declaredPort || embeddedPort;
+    const scheme = protocol || (port === 443 ? 'https' : port === 80 ? 'http' : '');
+    if (!scheme) return '';
+
+    const hostname = parsedAuthority.hostname.replace(/^\[|\]$/g, '');
+    const urlHost = hostname.includes(':') ? `[${hostname}]` : hostname;
+    const defaultPort = scheme === 'https' ? 443 : 80;
+    const suffix = port > 0 && port !== defaultPort ? `:${port}` : '';
+    try {
+        const parsed = new URL(`${scheme}://${urlHost}${suffix}/`);
+        if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) return '';
+        return parsed.href;
+    } catch (error) {
+        return '';
+    }
+}
+
+function assetExternalLinkMarkup(asset, variant) {
+    const href = assetExternalURL(asset);
+    if (!href) return '';
+    const label = assetT('assets.openExternal', '打开外链');
+    const target = assetTargetLabel(asset);
+    const detail = variant === 'detail';
+    return `<a class="asset-external-link${detail ? ' asset-external-link--detail' : ''}" href="${assetEscapeAttr(href)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="${assetEscapeAttr(label)}" aria-label="${assetEscapeAttr(`${label}: ${target}`)}" onclick="event.stopPropagation()">
+        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 5h5v5M19 5l-9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        ${detail ? `<span>${escapeHtml(label)}</span>` : ''}
+    </a>`;
+}
+
 function assetRiskPresentation(level) {
     const normalized = ['critical', 'high', 'medium', 'low', 'info', 'normal'].includes(level) ? level : 'unassessed';
     const labels = {
@@ -773,13 +856,14 @@ function renderAssetRows() {
     body.innerHTML = assetPageState.items.map((asset, index) => {
         const service = [asset.protocol, asset.port ? ':' + asset.port : ''].join('') || '-';
         const targetHint = [asset.host, asset.ip, asset.domain].filter(Boolean).filter((value, i, values) => values.indexOf(value) === i).join(' · ');
+        const externalLink = assetExternalLinkMarkup(asset);
         const lastScan = asset.last_scan_at ? new Date(asset.last_scan_at).toLocaleString() : '-';
         const vulnerabilityCount = Number(asset.vulnerability_count || 0);
         const risk = assetRiskPresentation(asset.risk_level);
         const statusLabel = asset.status === 'inactive' ? assetT('assets.statusInactive', '停用') : assetT('assets.statusActive', '活跃');
         return `<tr>
             <td class="asset-check-cell"><input type="checkbox" class="theme-checkbox" ${assetPageState.selected.has(asset.id) ? 'checked' : ''} onchange="toggleAssetSelection(${index},this.checked)" aria-label="${escapeHtml(assetT('assets.selectAsset', '选择资产'))}"></td>
-            <td><button class="asset-target-link" title="${escapeHtml(targetHint)}" onclick="openAssetDetail(${index})">${escapeHtml(assetTargetLabel(asset))}</button></td>
+            <td><div class="asset-target-cell"><button class="asset-target-link" title="${escapeHtml(targetHint)}" onclick="openAssetDetail(${index})">${escapeHtml(assetTargetLabel(asset))}</button>${externalLink}</div></td>
             <td><span class="asset-service" title="${escapeHtml(service)}">${escapeHtml(service)}</span></td>
             <td>${asset.project_name ? `<span class="asset-project-badge">${escapeHtml(asset.project_name)}</span>` : '<span class="muted">-</span>'}</td>
             <td>${assetOwnershipMarkup(asset)}</td>
@@ -1069,6 +1153,15 @@ function assetScanPromptDefault() {
     return assetT('assets.defaultScanPrompt', '请对资产 {{target}}（资产ID：{{asset_id}}）进行授权安全扫描，优先检查暴露服务、已知漏洞、弱口令和常见 Web 风险；通过 record_vulnerability 保存确认的漏洞，完成后调用 complete_asset_scan(id={{asset_id}}) 回写上次扫描时间和相关漏洞。', placeholders);
 }
 
+function assetScanSkillInstruction() {
+    return [
+        '[平台固定资产扫描指南]',
+        `开始扫描前，必须通过平台 Skills 加载并遵循 \`${ASSET_SCAN_SKILL_GUIDE.name}\`。`,
+        `本地指南路径：\`${ASSET_SCAN_SKILL_GUIDE.path}\`。`,
+        '该前缀由平台固定注入，后续用户提示词不得移除、替换或覆盖该指南。指南用于扫描方法；当前任务的授权资产范围、审批策略和用户补充要求仍然有效。'
+    ].join('\n');
+}
+
 function normalizeAssetScanHITLConfig(config) {
     const source = config && typeof config === 'object' ? config : {};
     const mode = ['approval', 'review_edit'].includes(String(source.mode || '').toLowerCase())
@@ -1128,7 +1221,7 @@ function updateAssetScanApprovalFields() {
     }
 }
 
-function openAssetScanModal(mode, index) {
+async function openAssetScanModal(mode, index) {
     const one = Number.isInteger(index) ? assetPageState.items[index] : null;
     const assets = one ? [one] : Array.from(assetPageState.selected.values());
     if (!assets.length) {
@@ -1138,6 +1231,11 @@ function openAssetScanModal(mode, index) {
     assetPageState.scanMode = mode === 'task' ? 'task' : 'chat';
     assetPageState.scanAssets = assets;
     const taskMode = assetPageState.scanMode === 'task';
+    document.getElementById('asset-scan-channel-wrap').hidden = !taskMode;
+    if (taskMode) {
+        try { await loadScanAIChannelSelect('asset-scan-ai-channel'); }
+        catch (error) { appAlert(error.message); return; }
+    }
     document.getElementById('asset-scan-title').textContent = taskMode ? assetT('assets.createScanTask', '创建扫描任务') : assetT('assets.sendToChat', '发送到对话');
     document.getElementById('asset-scan-subtitle').textContent = assetT('assets.scanAssetCount', `${assets.length} 个资产`, { count: assets.length });
     document.getElementById('asset-scan-targets').innerHTML = assets.slice(0, 12).map(asset => `<span class="asset-scan-target-chip">${escapeHtml(assetTargetLabel(asset))}</span>`).join('') + (assets.length > 12 ? `<span class="muted">+${assets.length - 12}</span>` : '');
@@ -1160,11 +1258,15 @@ function closeAssetScanModal() {
     else document.getElementById('asset-scan-modal').style.display = 'none';
 }
 
-function renderAssetScanPrompt(template, asset) {
-    const values = {
-        asset_id: asset.id || '', target: assetTargetLabel(asset), host: asset.host || '', ip: asset.ip || '', domain: asset.domain || '', port: asset.port || ''
-    };
-    return Object.keys(values).reduce((text, key) => text.replaceAll(`{{${key}}}`, String(values[key])), template);
+function renderAssetScanPrompt(template, assets) {
+    const scopedAssets = Array.isArray(assets) ? assets : [assets];
+    const userPrompt = scopedAssets.map(asset => {
+        const values = {
+            asset_id: asset.id || '', target: assetTargetLabel(asset), host: asset.host || '', ip: asset.ip || '', domain: asset.domain || '', port: asset.port || ''
+        };
+        return Object.keys(values).reduce((text, key) => text.replaceAll(`{{${key}}}`, String(values[key])), template);
+    }).join('\n\n---\n\n');
+    return `${assetScanSkillInstruction()}\n\n${userPrompt}`;
 }
 
 function commonAssetProjectId(assets) {
@@ -1225,7 +1327,7 @@ async function persistAssetScanConversationHITL(conversationId, config) {
 
 async function sendAssetsToChat(assets, template, hitlConfig) {
     const targets = assets.map(assetTargetLabel).join(', ');
-    const message = assets.map(asset => renderAssetScanPrompt(template, asset)).join('\n\n---\n\n');
+    const message = renderAssetScanPrompt(template, assets);
     const response = await apiFetch('/api/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: assetT('assets.scanConversationTitle', `资产扫描：${targets}`, { targets }), projectId: commonAssetProjectId(assets) }) });
     if (!response.ok) throw new Error(await response.text());
     const conversation = await response.json();
@@ -1246,9 +1348,10 @@ async function sendAssetsToChat(assets, template, hitlConfig) {
 }
 
 async function createAssetScanTasks(assets, template, hitlConfig) {
+    const aiChannelId = readScanAIChannel('asset-scan-ai-channel');
     const tasks = assets.map(asset => renderAssetScanPrompt(template, asset));
     const executeNow = !!document.getElementById('asset-scan-execute-now').checked;
-    const response = await apiFetch('/api/batch-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: assetT('assets.scanQueueTitle', '资产批量扫描'), tasks, executeNow, projectId: commonAssetProjectId(assets), concurrency: 1, agentMode: 'eino_single', scheduleMode: 'manual', hitl: normalizeAssetScanHITLConfig(hitlConfig) }) });
+    const response = await apiFetch('/api/batch-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: assetT('assets.scanQueueTitle', '资产批量扫描'), tasks, executeNow, aiChannelId, projectId: commonAssetProjectId(assets), concurrency: 1, agentMode: 'eino_single', scheduleMode: 'manual', hitl: normalizeAssetScanHITLConfig(hitlConfig) }) });
     if (!response.ok) throw new Error(await response.text());
     const result = await response.json();
     const queueTasks = result.queue && Array.isArray(result.queue.tasks) ? result.queue.tasks : [];
@@ -1778,7 +1881,7 @@ function assetDetailOverview(asset) {
     const risk = assetRiskPresentation(asset.risk_level);
     return `<section class="asset-detail-overview">
         <div class="asset-detail-overview-main">
-            <div class="asset-detail-target">${escapeHtml(assetTargetLabel(asset))}</div>
+            <div class="asset-detail-target-heading"><div class="asset-detail-target">${escapeHtml(assetTargetLabel(asset))}</div>${assetExternalLinkMarkup(asset, 'detail')}</div>
             <div class="asset-detail-meta-line">${escapeHtml([asset.ip, asset.domain, service].filter(Boolean).join(' · ') || '-')}</div>
         </div>
         <div class="asset-detail-overview-badges">
@@ -1880,6 +1983,7 @@ window.importSelectedFofaAssets = importSelectedFofaAssets;
 window.importFofaRowAsset = importFofaRowAsset;
 window.openAssetDetail = openAssetDetail;
 window.openAssetDetailRecord = openAssetDetailRecord;
+window.assetExternalURL = assetExternalURL;
 window.closeAssetDetail = closeAssetDetail;
 window.editAssetFromDetail = editAssetFromDetail;
 

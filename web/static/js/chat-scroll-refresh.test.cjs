@@ -472,7 +472,7 @@ test('消息气泡内部流式增高时仅在跟随模式继续粘底', () => {
 
 test('页面在任务补流脚本之前加载智能滚动控制器', () => {
     const scrollIndex = html.indexOf('/static/js/chat-scroll.js?v=20260830-pageview1');
-    const monitorIndex = html.indexOf('/static/js/monitor.js?v=20260830-codexargs1');
+    const monitorIndex = html.indexOf('/static/js/monitor.js?v=20260903-iterlimit1');
 
     assert.notEqual(scrollIndex, -1);
     assert.notEqual(monitorIndex, -1);
@@ -600,7 +600,7 @@ test('刷新指定对话时立即恢复且加载完成前不闪出无项目状�
     assert.match(css, /\.chat-container\.is-conversation-restoring #chat-messages/);
     assert.match(css, /\.chat-container\.is-conversation-restoring #chat-input-container/);
     assert.match(html, /router\.js\?v=[^"']+/);
-    assert.match(html, /chat\.js\?v=20260830-pageview1/);
+    assert.match(html, /chat\.js\?v=20260903-iterlimit1/);
 });
 
 test('刷新运行中回复会复用已持久化 planning 并继续追加未来增量', () => {

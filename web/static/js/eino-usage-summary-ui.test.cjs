@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const monitor = fs.readFileSync('web/static/js/monitor.js', 'utf8');
+const chat = fs.readFileSync('web/static/js/chat.js', 'utf8');
 const webshell = fs.readFileSync('web/static/js/webshell.js', 'utf8');
 const styles = fs.readFileSync('web/static/css/style.css', 'utf8');
 const zh = JSON.parse(fs.readFileSync('web/static/i18n/zh-CN.json', 'utf8'));
@@ -39,6 +40,15 @@ test('partial usage summaries stay in turn metadata instead of duplicating failu
     assert.match(monitor, /if \(isPartialEinoUsageSummary\(d\)\) break/);
     assert.match(webshell, /function isWebshellPartialEinoUsageSummary/);
     assert.match(webshell, /if \(!isWebshellPartialEinoUsageSummary\(_ed\)\)/);
+});
+
+test('iteration-limit failures render as a resumable pause instead of a generic raw error', () => {
+    assert.match(monitor, /terminalErrorData\.errorKind === 'iteration_limit'/);
+    assert.match(monitor, /iterationLimitReachedTitle/);
+    assert.match(chat, /data\.errorKind === 'iteration_limit'/);
+    assert.match(chat, /iterationLimitReachedTitle/);
+    assert.match(monitor, /const hasError = timeline && timeline\.querySelector\('\.timeline-item-error'\);[\s\S]{0,220}if \(doneTitle && !hasError\)/);
+    assert.match(monitor, /if \(progressTaskState\.has\(progressId\) && !hasError\)/);
 });
 
 test('Eino resilience and usage timeline labels have zh/en translations', () => {

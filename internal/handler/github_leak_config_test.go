@@ -12,12 +12,12 @@ import (
 
 func TestNormalizeGitHubLeakMonitorConfig(t *testing.T) {
 	got, err := normalizeGitHubLeakMonitorConfig(config.GitHubLeakMonitorConfig{
-		Keywords: []string{" storage-service ", "storage-service", "vendor.example"},
+		Keywords: []string{" storage-service ", "STORAGE-SERVICE", "vendor.example"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.IntervalSeconds != 7200 || got.RequestTimeoutSeconds != 45 || got.PerPage != 30 {
+	if got.IntervalSeconds != 7200 || got.RequestTimeoutSeconds != 45 || got.PerPage != 30 || got.LookbackDays != 365 {
 		t.Fatalf("unexpected defaults: %+v", got)
 	}
 	if len(got.Keywords) != 2 || got.Keywords[0] != "storage-service" || got.Keywords[1] != "vendor.example" {
@@ -33,7 +33,7 @@ func TestUpdateGitHubLeakMonitorConfigPersistsNamedRules(t *testing.T) {
 	want := config.GitHubLeakMonitorConfig{
 		Enabled: true, Token: "synthetic-token", FingerprintKey: "hex:" + strings.Repeat("ab", 32), Keywords: nil,
 		Rules:           []config.GitHubLeakRuleConfig{{Enabled: true, Name: "example-corp-clientid", Keywords: []string{"clientid", "vendor.example"}}},
-		IntervalSeconds: 7200, RequestTimeoutSeconds: 45, PerPage: 30,
+		IntervalSeconds: 7200, RequestTimeoutSeconds: 45, PerPage: 30, LookbackDays: 365,
 	}
 	updateGitHubLeakMonitorConfig(&document, want)
 	data, err := yaml.Marshal(&document)
@@ -48,8 +48,20 @@ func TestUpdateGitHubLeakMonitorConfigPersistsNamedRules(t *testing.T) {
 	}
 	if len(decoded.Monitor.Rules) != 1 || decoded.Monitor.Rules[0].Name != "example-corp-clientid" ||
 		len(decoded.Monitor.Rules[0].Keywords) != 2 || !decoded.Monitor.Rules[0].Enabled ||
-		decoded.Monitor.FingerprintKey != want.FingerprintKey {
+		decoded.Monitor.FingerprintKey != want.FingerprintKey || decoded.Monitor.LookbackDays != 365 {
 		t.Fatalf("persisted monitor config = %+v\nyaml=%s", decoded.Monitor, data)
+	}
+}
+
+func TestNormalizeGitHubLeakMonitorConfigRejectsInvalidLookback(t *testing.T) {
+	for _, days := range []int{-1, config.MaxGitHubLeakLookbackDays + 1} {
+		_, err := normalizeGitHubLeakMonitorConfig(config.GitHubLeakMonitorConfig{
+			LookbackDays: days,
+			Rules:        []config.GitHubLeakRuleConfig{{Enabled: true, Name: "rule", Keywords: []string{"example.com", "secret"}}},
+		})
+		if err == nil {
+			t.Fatalf("expected lookback_days=%d to be rejected", days)
+		}
 	}
 }
 
@@ -131,6 +143,24 @@ func TestNormalizeGitHubLeakMonitorConfigNamedRulesTakePrecedence(t *testing.T) 
 	}
 }
 
+func TestNormalizeGitHubLeakMonitorConfigAcceptsExpandedRuleCapacity(t *testing.T) {
+	rules := make([]config.GitHubLeakRuleConfig, config.MaxGitHubLeakRules)
+	for i := range rules {
+		rules[i] = config.GitHubLeakRuleConfig{
+			Enabled:  true,
+			Name:     fmt.Sprintf("rule-%d", i),
+			Keywords: []string{fmt.Sprintf("keyword-%d", i)},
+		}
+	}
+	got, err := normalizeGitHubLeakMonitorConfig(config.GitHubLeakMonitorConfig{Rules: rules})
+	if err != nil {
+		t.Fatalf("maximum of %d rules was rejected: %v", config.MaxGitHubLeakRules, err)
+	}
+	if len(got.Rules) != config.MaxGitHubLeakRules {
+		t.Fatalf("normalized rule count = %d, want %d", len(got.Rules), config.MaxGitHubLeakRules)
+	}
+}
+
 func TestNormalizeGitHubLeakMonitorConfigRejectsAmbiguousRules(t *testing.T) {
 	tests := []config.GitHubLeakMonitorConfig{
 		{Rules: []config.GitHubLeakRuleConfig{
@@ -139,7 +169,7 @@ func TestNormalizeGitHubLeakMonitorConfigRejectsAmbiguousRules(t *testing.T) {
 		}},
 		{Rules: []config.GitHubLeakRuleConfig{
 			{Enabled: true, Name: "one", Keywords: []string{"vendor.example", "clientid"}},
-			{Enabled: true, Name: "two", Keywords: []string{"CLIENTID", "vendor.example"}},
+			{Enabled: true, Name: "two", Keywords: []string{"CLIENTID", "VENDOR.EXAMPLE"}},
 		}},
 		{Rules: []config.GitHubLeakRuleConfig{{Enabled: false, Name: "empty"}}},
 		{Rules: []config.GitHubLeakRuleConfig{{Enabled: true, Name: "bad\nname", Keywords: []string{"clientid"}}}},

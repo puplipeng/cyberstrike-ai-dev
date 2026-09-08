@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -161,7 +162,9 @@ func (h *WorkflowHandler) ResumeRun(c *gin.Context) {
 		})
 		return
 	}
-	result, err := workflowrunner.ResumeWorkflowRun(c.Request.Context(), workflowrunner.RunArgs{
+	resumeCtx, resumeCancel := context.WithTimeout(detachedAgentContext(c.Request.Context()), 10*time.Hour)
+	defer resumeCancel()
+	result, err := workflowrunner.ResumeWorkflowRun(resumeCtx, workflowrunner.RunArgs{
 		DB:             h.db,
 		Logger:         h.logger,
 		Role:           role,

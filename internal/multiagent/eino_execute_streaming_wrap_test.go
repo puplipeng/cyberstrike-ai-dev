@@ -4,16 +4,51 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"cyberstrike-ai/internal/einomcp"
 	"cyberstrike-ai/internal/mcp"
+	"cyberstrike-ai/internal/security"
 
 	"github.com/cloudwego/eino/adk/filesystem"
 	"github.com/cloudwego/eino/schema"
 )
+
+// Run the wrapper and real streaming shell together: mocks cannot detect an
+// absent /bin/sh or a POSIX export accidentally sent to PowerShell.
+func TestEinoStreamingShellWrap_NativeExecution(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := "printf 'wrapper-ok:%s' \"$PYTHONUNBUFFERED\""
+	if runtime.GOOS == "windows" {
+		command = "& { Write-Output ('wrapper-ok:' + $env:PYTHONUNBUFFERED) }"
+	}
+	wrap := &einoStreamingShellWrap{inner: security.NewEinoStreamingShell()}
+	sr, err := wrap.ExecuteStreaming(ctx, &filesystem.ExecuteRequest{Command: command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sr.Close()
+	var output strings.Builder
+	for {
+		response, err := sr.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response != nil {
+			output.WriteString(response.Output)
+		}
+	}
+	if !strings.Contains(output.String(), "wrapper-ok:1") {
+		t.Fatalf("native shell/environment failed: %q", output.String())
+	}
+}
 
 type mockStreamingShell struct {
 	immediateErr error

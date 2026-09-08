@@ -1,8 +1,9 @@
 name: "steghide"
 command: "python3"
 args:
-  - "D:/Projects/CyberStrikeAI/work/runtime/security-tools/bin/steghide_runner.py"
-enabled: true
+  - "../runtime/security-tools/bin/steghide_runner.py"
+# Requires the separately installed compatibility runner at the configured path.
+enabled: false
 short_description: "隐写术分析工具"
 description: |
   Steghide Windows 兼容封装，支持追加型数据隐写的本地嵌入、提取和信息查看。

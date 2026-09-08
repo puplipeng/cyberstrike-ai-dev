@@ -1,9 +1,10 @@
 name: "hydra"
 command: "python3"
 args:
-  - "D:/Projects/CyberStrikeAI/work/runtime/security-tools/bin/hydra_runner.py"
+  - "../runtime/security-tools/bin/hydra_runner.py"
   - "-I"
-enabled: true
+# Requires the separately installed compatibility runner at the configured path.
+enabled: false
 short_description: "密码暴力破解工具，支持多种协议和服务"
 description: |
   Hydra Windows 兼容封装，支持 SSH、FTP、SMB、HTTP Basic 和简化表单认证测试。

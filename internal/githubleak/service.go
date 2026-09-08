@@ -17,7 +17,7 @@ type persistence interface {
 	List(context.Context, ListFilter) (ListResult, error)
 	Get(context.Context, string) (Finding, error)
 	UpdateStatus(context.Context, string, string) (Finding, error)
-	Stats(context.Context) (Stats, error)
+	Stats(context.Context, *time.Time) (Stats, error)
 	KeywordState(context.Context, string) (KeywordState, error)
 	SaveKeywordState(context.Context, KeywordState) error
 	BeginRun(context.Context, time.Time) (RunRecord, error)
@@ -27,10 +27,24 @@ type persistence interface {
 
 type searchProvider interface {
 	SearchKeywords(context.Context, []string, string, int) (SearchResult, error)
+	LatestPathCommitAt(context.Context, SearchItem) (time.Time, error)
 }
 
 type secretDetector interface {
 	Detect(string, SearchItem) []Candidate
+}
+
+const (
+	freshnessPolicyVersion   = "path-commit-v1"
+	freshnessRecheckInterval = 24 * time.Hour
+	maxFreshnessChecksPerRun = 200
+	maxSourceFutureSkew      = 15 * time.Minute
+)
+
+var errPathCommitInFuture = errors.New("GitHub path commit timestamp is in the future")
+
+func freshnessPolicy(lookbackDays int) string {
+	return fmt.Sprintf("%s:%dd", freshnessPolicyVersion, lookbackDays)
 }
 
 type runtimeConfig struct {
@@ -222,22 +236,49 @@ func inheritRequestBoundary(previous, next searchProvider) {
 	lastRequest := oldClient.lastRequest
 	oldClient.requestMu.Unlock()
 	newClient.lastRequest = lastRequest
+	oldClient.metadataMu.Lock()
+	metadataLastRequest := oldClient.metadataLastRequest
+	oldClient.metadataMu.Unlock()
+	newClient.metadataLastRequest = metadataLastRequest
 }
 
 func (s *Service) List(ctx context.Context, filter ListFilter) (ListResult, error) {
+	cutoff := s.currentLookbackCutoff()
+	filter.SourceUpdatedAfter = &cutoff
 	return s.store.List(ctx, filter)
 }
 
 func (s *Service) Get(ctx context.Context, id string) (Finding, error) {
-	return s.store.Get(ctx, id)
+	finding, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Finding{}, err
+	}
+	if finding.SourceUpdatedAt == nil || finding.SourceUpdatedAt.Before(s.currentLookbackCutoff()) {
+		return Finding{}, ErrNotFound
+	}
+	return finding, nil
 }
 
 func (s *Service) UpdateStatus(ctx context.Context, id, status string) (Finding, error) {
+	if _, err := s.Get(ctx, id); err != nil {
+		return Finding{}, err
+	}
 	return s.store.UpdateStatus(ctx, id, status)
 }
 
 func (s *Service) Stats(ctx context.Context) (Stats, error) {
-	return s.store.Stats(ctx)
+	cutoff := s.currentLookbackCutoff()
+	return s.store.Stats(ctx, &cutoff)
+}
+
+func (s *Service) currentLookbackCutoff() time.Time {
+	s.mu.Lock()
+	settings := s.settings
+	if s.pending != nil {
+		settings = s.pending.settings
+	}
+	s.mu.Unlock()
+	return time.Now().UTC().AddDate(0, 0, -settings.LookbackDays)
 }
 
 func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
@@ -254,6 +295,7 @@ func (s *Service) RuntimeStatus(ctx context.Context) (RuntimeStatus, error) {
 		NextRunAt: next, RateRemaining: -1, IntervalSeconds: settings.PollIntervalSeconds,
 		RequestIntervalSeconds: settings.IntervalSeconds,
 		RequestTimeoutSeconds:  settings.RequestTimeoutSeconds,
+		LookbackDays:           settings.LookbackDays,
 		Keywords:               append([]string(nil), settings.Keywords...), Rules: []RuleStatus{},
 	}
 	if rule, ruleErr := newKeywordRule(settings.Keywords); ruleErr == nil {
@@ -434,11 +476,21 @@ func (s *Service) execute(parent context.Context, settings Settings, provider se
 	}
 	run.Status = "success"
 	run.RateRemaining = -1
+	cutoff := run.StartedAt.AddDate(0, 0, -settings.LookbackDays)
+	type recencyResult struct {
+		updatedAt time.Time
+		err       error
+	}
+	recencyCache := make(map[string]recencyResult)
+	freshnessChecksRemaining := maxFreshnessChecksPerRun
 	completedRules := 0
 	failedRules := 0
 	incompleteRules := 0
+	budgetLimitedRules := 0
 	permanentSearchFailure := false
-	for _, rule := range rules {
+	stopRun := false
+	policy := freshnessPolicy(settings.LookbackDays)
+	for ruleIndex, rule := range rules {
 		if ctx.Err() != nil {
 			run.Status = "cancelled"
 			run.Error = "run cancelled"
@@ -448,6 +500,19 @@ func (s *Service) execute(parent context.Context, settings Settings, provider se
 		if stateErr != nil {
 			failedRules++
 			continue
+		}
+		if state.FreshnessPolicy != policy {
+			state.ETag = ""
+			state.FreshnessCheckedAt = nil
+			state.FreshnessCursor = 0
+			state.FreshnessCursorETag = ""
+		}
+		state.FreshnessPolicy = policy
+		if state.FreshnessCheckedAt == nil || !state.FreshnessCheckedAt.After(run.StartedAt.Add(-freshnessRecheckInterval)) {
+			// GitHub code-search ETags describe the search response, not the
+			// path commit history used by the local one-year policy. Force a
+			// full response at least daily so source ages are revalidated.
+			state.ETag = ""
 		}
 		attemptAt := time.Now().UTC()
 		state.LastAttemptAt = &attemptAt
@@ -487,9 +552,9 @@ func (s *Service) execute(parent context.Context, settings Settings, provider se
 		state.Incomplete = result.Incomplete
 		state.Truncated = result.Truncated
 		completedAt := time.Now().UTC()
-		state.LastSuccessAt = &completedAt
 		if result.NotModified {
 			state.LastStatus = "not_modified"
+			state.LastSuccessAt = &completedAt
 			if result.ETag != "" {
 				state.ETag = result.ETag
 			}
@@ -502,23 +567,132 @@ func (s *Service) execute(parent context.Context, settings Settings, provider se
 			continue
 		}
 		candidates := make([]Candidate, 0)
-		for _, item := range result.Items {
+		recencyFailures := 0
+		budgetLimited := false
+		fatalFreshnessFailure := false
+		ruleFreshnessChecks := 0
+		rulesRemaining := len(rules) - ruleIndex
+		perRuleFreshnessLimit := 0
+		if freshnessChecksRemaining > 0 {
+			perRuleFreshnessLimit = freshnessChecksRemaining / rulesRemaining
+			if perRuleFreshnessLimit < 1 {
+				perRuleFreshnessLimit = 1
+			}
+		}
+		cursor := state.FreshnessCursor
+		cursorETag := state.FreshnessCursorETag
+		if cursor > 0 && cursorETag != result.ETag {
+			cursor = 0
+		}
+		if cursor < 0 || cursor >= len(result.Items) {
+			cursor = 0
+		}
+		visitedItems := 0
+		for step := 0; step < len(result.Items); step++ {
+			item := result.Items[(cursor+step)%len(result.Items)]
 			detected := detector.Detect(rule.Query, item)
+			if len(detected) == 0 {
+				visitedItems++
+				continue
+			}
+			cacheKey := item.RepoNodeID + "\x00" + item.Repository + "\x00" + item.Path + "\x00" + item.BlobSHA
+			freshness, cached := recencyCache[cacheKey]
+			if !cached {
+				if ruleFreshnessChecks >= perRuleFreshnessLimit {
+					recencyFailures++
+					budgetLimited = true
+					break
+				}
+				ruleFreshnessChecks++
+				freshnessChecksRemaining--
+				run.Requests++
+				freshness.updatedAt, freshness.err = provider.LatestPathCommitAt(ctx, item)
+				if freshness.err == nil && freshness.updatedAt.After(time.Now().UTC().Add(maxSourceFutureSkew)) {
+					freshness.err = errPathCommitInFuture
+				}
+				recencyCache[cacheKey] = freshness
+			}
+			if freshness.err != nil {
+				recencyFailures++
+				if isItemLocalMetadataError(freshness.err) {
+					// A search index entry can outlive a deleted or renamed path.
+					// Skip only that item; the per-rule request budget prevents
+					// repeated stale entries from monopolizing a run.
+					visitedItems++
+					continue
+				}
+				state.LastStatus = "partial"
+				state.LastError = "candidate freshness verification failed"
+				fatalFreshnessFailure = true
+				run.Status = "partial"
+				run.Error = state.LastError
+				var httpErr *HTTPStatusError
+				if errors.As(freshness.err, &httpErr) && httpErr.RateLimited {
+					run.Status = "rate_limited"
+					run.Error = "GitHub metadata rate limited"
+					run.RateResetAt = copyTime(httpErr.RateReset)
+				} else if errors.Is(freshness.err, context.Canceled) || errors.Is(freshness.err, context.DeadlineExceeded) {
+					run.Status = "cancelled"
+					run.Error = "run cancelled"
+				}
+				stopRun = true
+				break
+			}
+			if freshness.updatedAt.IsZero() || freshness.updatedAt.Before(cutoff) {
+				visitedItems++
+				continue
+			}
 			for i := range detected {
 				detected[i].RuleName = rule.Name
+				detected[i].SourceUpdatedAt = freshness.updatedAt.UTC()
 			}
 			candidates = append(candidates, detected...)
+			visitedItems++
 		}
-		run.Processed += len(result.Items)
+		if len(result.Items) == 0 || visitedItems == len(result.Items) {
+			state.FreshnessCursor = 0
+			state.FreshnessCursorETag = ""
+		} else {
+			state.FreshnessCursor = (cursor + visitedItems) % len(result.Items)
+			if state.FreshnessCursor == 0 {
+				state.FreshnessCursorETag = ""
+			} else {
+				state.FreshnessCursorETag = result.ETag
+			}
+		}
+		run.Processed += visitedItems
 		run.Detected += len(candidates)
 		if _, _, err = s.store.UpsertCandidates(ctx, candidates, completedAt); err != nil {
+			// The candidate transaction failed, so do not advance the durable
+			// cursor past findings that were not committed.
+			state.FreshnessCursor = cursor
+			state.FreshnessCursorETag = cursorETag
 			state.LastStatus = "error"
 			state.LastError = "finding storage failed"
 			_ = s.saveKeywordState(ctx, state)
 			failedRules++
+			if stopRun {
+				break
+			}
 			continue
 		}
-		if result.Incomplete || result.Truncated {
+		if budgetLimited {
+			state.LastStatus = "partial"
+			state.LastError = fmt.Sprintf("per-rule candidate freshness check limit %d reached", perRuleFreshnessLimit)
+			state.ETag = ""
+			incompleteRules++
+			budgetLimitedRules++
+		} else if fatalFreshnessFailure {
+			state.LastStatus = "partial"
+			state.LastError = "candidate freshness verification failed"
+			state.ETag = ""
+			incompleteRules++
+		} else if recencyFailures > 0 {
+			state.LastStatus = "partial"
+			state.LastError = fmt.Sprintf("%d candidate freshness checks failed", recencyFailures)
+			state.ETag = ""
+			incompleteRules++
+		} else if result.Incomplete || result.Truncated {
 			state.LastStatus = "partial"
 			// Do not save an ETag for an incomplete snapshot; otherwise a later
 			// 304 could turn a partial result into a permanent high-water mark.
@@ -527,15 +701,25 @@ func (s *Service) execute(parent context.Context, settings Settings, provider se
 		} else {
 			state.LastStatus = "success"
 			state.ETag = result.ETag
+			state.FreshnessCheckedAt = &completedAt
+			state.FreshnessCursor = 0
+			state.FreshnessCursorETag = ""
+			state.LastSuccessAt = &completedAt
 		}
 		if err = s.saveKeywordState(ctx, state); err != nil {
 			s.logger.Warn("GitHub leak monitor state write failed", zap.String("error_type", fmt.Sprintf("%T", err)), zap.Bool("run_context_done", ctx.Err() != nil))
 			failedRules++
+			if stopRun {
+				break
+			}
 			continue
 		}
 		completedRules++
+		if stopRun {
+			break
+		}
 	}
-	if run.Status != "rate_limited" && run.Status != "cancelled" {
+	if run.Status == "success" {
 		switch {
 		case permanentSearchFailure && completedRules == 0:
 			run.Status = "error"
@@ -551,7 +735,11 @@ func (s *Service) execute(parent context.Context, settings Settings, provider se
 			run.Error = fmt.Sprintf("%d of %d rule searches failed", failedRules, len(rules))
 		case incompleteRules > 0:
 			run.Status = "partial"
-			run.Error = fmt.Sprintf("%d of %d rule searches were incomplete or truncated", incompleteRules, len(rules))
+			if budgetLimitedRules > 0 {
+				run.Error = fmt.Sprintf("%d of %d rule searches were partial; %d reached the per-rule freshness check limit", incompleteRules, len(rules), budgetLimitedRules)
+			} else {
+				run.Error = fmt.Sprintf("%d of %d rule searches were incomplete, truncated, or failed freshness verification", incompleteRules, len(rules))
+			}
 		default:
 			run.Status = "success"
 		}
@@ -575,9 +763,11 @@ func runTimeoutForRules(settings Settings, enabledRules int) time.Duration {
 	if enabledRules < 1 {
 		return runTimeout
 	}
-	// Search calls are serialized and spacing starts after the previous call
-	// finishes, so both the timeout and the quiet interval scale per rule.
-	minimum := time.Duration(enabledRules)*(settings.interval()+settings.timeout()) + 5*time.Minute
+	// Search calls are serialized and spacing starts after the previous call.
+	// Metadata calls are also serialized, but the first network-level failure
+	// stops the run, so budget every quiet interval plus one request timeout.
+	minimum := time.Duration(enabledRules)*(settings.interval()+settings.timeout()) +
+		time.Duration(maxFreshnessChecksPerRun)*metadataInterval + settings.timeout() + 5*time.Minute
 	if minimum > runTimeout {
 		runTimeout = minimum
 	}
@@ -592,6 +782,22 @@ func isPermanentSearchFailure(err *HTTPStatusError) bool {
 		return false
 	}
 	return err.StatusCode == 401 || err.StatusCode == 403
+}
+
+func isItemLocalMetadataError(err error) bool {
+	if errors.Is(err, errPathCommitUnavailable) || errors.Is(err, errPathCommitInFuture) {
+		return true
+	}
+	var statusErr *HTTPStatusError
+	if !errors.As(err, &statusErr) || statusErr.RateLimited {
+		return false
+	}
+	switch statusErr.StatusCode {
+	case 404, 409, 422:
+		return true
+	default:
+		return false
+	}
 }
 
 func classifySearchError(err error) string {

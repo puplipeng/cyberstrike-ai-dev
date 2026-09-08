@@ -70,7 +70,7 @@ afrog -t target.com -o report.html
 
 ```yaml
 quake:
-  api_key: "YOUR_KEY"
+  api_key: "<REPLACE_WITH_VALUE>"
 fofa:
   email: ""
   api_key: ""

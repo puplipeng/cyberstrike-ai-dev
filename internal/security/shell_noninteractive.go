@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +121,14 @@ func PrependNonInteractiveStdinRedirect(shellCommand string) string {
 // PrepareNonInteractiveShellCommand 组合非交互包装：stdin 关闭 + pager 等环境变量（零名单）。
 func PrepareNonInteractiveShellCommand(shellCommand string) string {
 	return PrependNonInteractiveStdinRedirect(PrependNonInteractiveShellExports(shellCommand))
+}
+
+// DefaultAgentShell is shared by MCP exec and Eino's streaming execute tool.
+func DefaultAgentShell() string {
+	if runtime.GOOS == "windows" {
+		return "powershell"
+	}
+	return "sh"
 }
 
 // prepareShellInvocation applies syntax that belongs to the selected shell only.

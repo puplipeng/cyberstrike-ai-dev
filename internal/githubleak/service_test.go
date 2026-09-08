@@ -16,12 +16,16 @@ type serviceTestPersistence struct {
 	states     map[string]KeywordState
 	runs       []RunRecord
 	candidates []Candidate
+	findings   map[string]Finding
 	finished   chan RunRecord
+	listFilter ListFilter
+	statsAfter *time.Time
+	upsertErr  error
 }
 
 func newServiceTestPersistence() *serviceTestPersistence {
 	return &serviceTestPersistence{
-		lock: true, states: make(map[string]KeywordState), finished: make(chan RunRecord, 8),
+		lock: true, states: make(map[string]KeywordState), findings: make(map[string]Finding), finished: make(chan RunRecord, 8),
 	}
 }
 
@@ -35,26 +39,48 @@ func (p *serviceTestPersistence) AcquireRunLock(context.Context) (func(), bool, 
 func (p *serviceTestPersistence) UpsertCandidates(_ context.Context, candidates []Candidate, _ time.Time) (int, int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.upsertErr != nil {
+		return 0, 0, p.upsertErr
+	}
 	p.candidates = append(p.candidates, candidates...)
 	return len(candidates), 0, nil
 }
 
-func (p *serviceTestPersistence) List(context.Context, ListFilter) (ListResult, error) {
+func (p *serviceTestPersistence) List(_ context.Context, filter ListFilter) (ListResult, error) {
+	p.mu.Lock()
+	p.listFilter = filter
+	p.mu.Unlock()
 	return ListResult{}, nil
 }
 
-func (p *serviceTestPersistence) Get(context.Context, string) (Finding, error) {
-	return Finding{}, ErrNotFound
+func (p *serviceTestPersistence) Get(_ context.Context, id string) (Finding, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	finding, ok := p.findings[id]
+	if !ok {
+		return Finding{}, ErrNotFound
+	}
+	return finding, nil
 }
 
 func (p *serviceTestPersistence) UpdateStatus(_ context.Context, id, status string) (Finding, error) {
-	if id == "" || !ValidStatus(status) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	finding, ok := p.findings[id]
+	if !ok || !ValidStatus(status) {
 		return Finding{}, ErrNotFound
 	}
-	return Finding{ID: id, Status: status}, nil
+	finding.Status = status
+	p.findings[id] = finding
+	return finding, nil
 }
 
-func (p *serviceTestPersistence) Stats(context.Context) (Stats, error) { return Stats{}, nil }
+func (p *serviceTestPersistence) Stats(_ context.Context, sourceUpdatedAfter *time.Time) (Stats, error) {
+	p.mu.Lock()
+	p.statsAfter = copyTime(sourceUpdatedAfter)
+	p.mu.Unlock()
+	return Stats{}, nil
+}
 
 func (p *serviceTestPersistence) KeywordState(_ context.Context, keyword string) (KeywordState, error) {
 	p.mu.Lock()
@@ -113,15 +139,38 @@ type serviceProviderCall struct {
 }
 
 type serviceTestProvider struct {
-	mu      sync.Mutex
-	calls   []serviceProviderCall
-	result  SearchResult
-	err     error
-	results []SearchResult
-	errs    []error
-	started chan struct{}
-	release <-chan struct{}
-	once    sync.Once
+	mu               sync.Mutex
+	calls            []serviceProviderCall
+	metadataCalls    []SearchItem
+	result           SearchResult
+	err              error
+	results          []SearchResult
+	errs             []error
+	latestCommitAt   time.Time
+	latestCommitErr  error
+	latestCommitAts  []time.Time
+	latestCommitErrs []error
+	started          chan struct{}
+	release          <-chan struct{}
+	once             sync.Once
+}
+
+func (p *serviceTestProvider) LatestPathCommitAt(_ context.Context, item SearchItem) (time.Time, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	callIndex := len(p.metadataCalls)
+	p.metadataCalls = append(p.metadataCalls, item)
+	updatedAt, err := p.latestCommitAt, p.latestCommitErr
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	if callIndex < len(p.latestCommitAts) {
+		updatedAt = p.latestCommitAts[callIndex]
+	}
+	if callIndex < len(p.latestCommitErrs) {
+		err = p.latestCommitErrs[callIndex]
+	}
+	return updatedAt, err
 }
 
 func (p *serviceTestProvider) SearchKeywords(ctx context.Context, keywords []string, etag string, maxResults int) (SearchResult, error) {
@@ -153,6 +202,12 @@ func (p *serviceTestProvider) callSnapshot() []serviceProviderCall {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]serviceProviderCall(nil), p.calls...)
+}
+
+func (p *serviceTestProvider) metadataCallSnapshot() []SearchItem {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]SearchItem(nil), p.metadataCalls...)
 }
 
 type serviceTestDetector struct{ candidates []Candidate }
@@ -323,11 +378,12 @@ func TestServiceAppliesSettingsQueuedDuringActiveRun(t *testing.T) {
 func TestServiceIncompleteSearchClearsETagBeforeNextAttempt(t *testing.T) {
 	store := newServiceTestPersistence()
 	oldAttempt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	freshnessCheckedAt := time.Now().UTC()
 	rule, ruleErr := newKeywordRule([]string{"storage-service"})
 	if ruleErr != nil {
 		t.Fatal(ruleErr)
 	}
-	store.states[rule.Query] = KeywordState{Keyword: rule.Query, ETag: `"complete-etag"`, LastAttemptAt: &oldAttempt, LastStatus: "success"}
+	store.states[rule.Query] = KeywordState{Keyword: rule.Query, ETag: `"complete-etag"`, FreshnessPolicy: freshnessPolicy(DefaultLookbackDays), FreshnessCheckedAt: &freshnessCheckedAt, LastAttemptAt: &oldAttempt, LastStatus: "success"}
 	provider := &serviceTestProvider{result: SearchResult{ETag: `"partial-etag"`, Incomplete: true, TotalCount: 500, Items: []SearchItem{}}}
 	service, err := newService(store, serviceSettings(true, "storage-service"), provider, serviceTestDetector{}, nil)
 	if err != nil {
@@ -382,7 +438,7 @@ func TestServiceTruncatedSearchIsPartialAndVisibleInRuleStatus(t *testing.T) {
 func TestServiceCanonicalRuleReusesStateAcrossKeywordOrder(t *testing.T) {
 	store := newServiceTestPersistence()
 	provider := &serviceTestProvider{result: SearchResult{ETag: `"combined-etag"`, Items: []SearchItem{}}}
-	settings := serviceSettings(false, "vendor.example", "storage-service", "storage-service")
+	settings := serviceSettings(false, "vendor.example", "storage-service", "STORAGE-SERVICE")
 	service, err := newService(store, settings, provider, serviceTestDetector{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -401,6 +457,440 @@ func TestServiceCanonicalRuleReusesStateAcrossKeywordOrder(t *testing.T) {
 	store.mu.Unlock()
 	if stateCount != 1 {
 		t.Fatalf("keyword reordering created %d state rows, want 1", stateCount)
+	}
+}
+
+func TestServiceInvalidatesETagWhenFreshnessPolicyChanges(t *testing.T) {
+	store := newServiceTestPersistence()
+	rule, err := newKeywordRule([]string{"example.com", "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.states[rule.Query] = KeywordState{Keyword: rule.Query, ETag: `"legacy-etag"`, FreshnessPolicy: ""}
+	provider := &serviceTestProvider{result: SearchResult{ETag: `"lookback-etag"`}}
+	settings := serviceSettings(false, "example.com", "secret")
+	settings.LookbackDays = 365
+	service, err := newService(store, settings, provider, serviceTestDetector{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.execute(context.Background(), service.settings, provider, service.detector)
+	_ = waitForServiceRun(t, store.finished)
+	calls := provider.callSnapshot()
+	if len(calls) != 1 || calls[0].etag != "" {
+		t.Fatalf("freshness policy reused stale ETag: %+v", calls)
+	}
+	store.mu.Lock()
+	state := store.states[rule.Query]
+	store.mu.Unlock()
+	if state.FreshnessPolicy != freshnessPolicy(365) || state.ETag != `"lookback-etag"` {
+		t.Fatalf("state = %+v", state)
+	}
+}
+
+func TestServiceFiltersDetectedCandidatesByPathCommitLookback(t *testing.T) {
+	tests := []struct {
+		name          string
+		latestCommit  time.Time
+		latestErr     error
+		wantStatus    string
+		wantDetected  int
+		wantStored    int
+		wantStateETag string
+	}{
+		{name: "fresh path is retained", latestCommit: time.Now().UTC().AddDate(0, 0, -30), wantStatus: "success", wantDetected: 1, wantStored: 1, wantStateETag: `"freshness-etag"`},
+		{name: "small source clock skew is retained", latestCommit: time.Now().UTC().Add(5 * time.Minute), wantStatus: "success", wantDetected: 1, wantStored: 1, wantStateETag: `"freshness-etag"`},
+		{name: "stale path is excluded", latestCommit: time.Now().UTC().AddDate(0, 0, -400), wantStatus: "success", wantDetected: 0, wantStored: 0, wantStateETag: `"freshness-etag"`},
+		{name: "future path timestamp is rejected", latestCommit: time.Now().UTC().Add(24 * time.Hour), wantStatus: "partial", wantDetected: 0, wantStored: 0, wantStateETag: ""},
+		{name: "metadata failure is partial and retryable", latestErr: errors.New("synthetic metadata failure"), wantStatus: "partial", wantDetected: 0, wantStored: 0, wantStateETag: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newServiceTestPersistence()
+			provider := &serviceTestProvider{
+				result: SearchResult{ETag: `"freshness-etag"`, Items: []SearchItem{{
+					RepoNodeID: "R_shared", Repository: "owner/repo", Path: "config.env", BlobSHA: strings.Repeat("a", 40),
+					HTMLURL: "https://github.com/owner/repo/blob/main/config.env",
+				}}},
+				latestCommitAt:  tt.latestCommit,
+				latestCommitErr: tt.latestErr,
+			}
+			detector := serviceTestDetector{candidates: []Candidate{{Fingerprint: "sanitized-fingerprint"}}}
+			settings := serviceSettings(false, "example.com", "secret")
+			settings.LookbackDays = 365
+			service, err := newService(store, settings, provider, detector, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.execute(context.Background(), service.settings, provider, detector)
+			run := waitForServiceRun(t, store.finished)
+			if run.Status != tt.wantStatus || run.Detected != tt.wantDetected || run.Requests != 2 {
+				t.Fatalf("run = %+v", run)
+			}
+			if got := len(provider.metadataCallSnapshot()); got != 1 {
+				t.Fatalf("metadata calls = %d, want 1", got)
+			}
+			store.mu.Lock()
+			stored := len(store.candidates)
+			state := store.states[`"example.com" AND "secret" in:file`]
+			var sourceUpdatedAt time.Time
+			if stored > 0 {
+				sourceUpdatedAt = store.candidates[0].SourceUpdatedAt
+			}
+			store.mu.Unlock()
+			if stored != tt.wantStored || state.ETag != tt.wantStateETag {
+				t.Fatalf("stored=%d state=%+v", stored, state)
+			}
+			if stored > 0 && !sourceUpdatedAt.Equal(tt.latestCommit) {
+				t.Fatalf("stored source update time = %v, want %v", sourceUpdatedAt, tt.latestCommit)
+			}
+		})
+	}
+}
+
+func TestServiceRevalidatesFreshnessDailyDespiteSearchETag(t *testing.T) {
+	tests := []struct {
+		name       string
+		checkedAgo time.Duration
+		wantETag   string
+	}{
+		{name: "recent freshness check reuses ETag", checkedAgo: 23 * time.Hour, wantETag: `"current"`},
+		{name: "old freshness check forces full response", checkedAgo: 25 * time.Hour, wantETag: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newServiceTestPersistence()
+			rule, err := newKeywordRule([]string{"example.com", "secret"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkedAt := time.Now().UTC().Add(-tt.checkedAgo)
+			store.states[rule.Query] = KeywordState{
+				Keyword: rule.Query, ETag: `"current"`, FreshnessPolicy: freshnessPolicy(DefaultLookbackDays),
+				FreshnessCheckedAt: &checkedAt, LastStatus: "success",
+			}
+			provider := &serviceTestProvider{result: SearchResult{ETag: `"next"`}}
+			service, err := newService(store, serviceSettings(false, "example.com", "secret"), provider, serviceTestDetector{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.execute(context.Background(), service.settings, provider, service.detector)
+			_ = waitForServiceRun(t, store.finished)
+			calls := provider.callSnapshot()
+			if len(calls) != 1 || calls[0].etag != tt.wantETag {
+				t.Fatalf("search calls = %+v", calls)
+			}
+			store.mu.Lock()
+			state := store.states[rule.Query]
+			store.mu.Unlock()
+			if state.FreshnessCheckedAt == nil || !state.FreshnessCheckedAt.After(checkedAt) {
+				t.Fatalf("freshness check timestamp was not advanced: %+v", state)
+			}
+		})
+	}
+}
+
+func TestServiceStopsRunAfterMetadataFailure(t *testing.T) {
+	store := newServiceTestPersistence()
+	provider := &serviceTestProvider{
+		results:         []SearchResult{{Items: []SearchItem{{Repository: "owner/one", Path: "one.env"}}}, {Items: []SearchItem{{Repository: "owner/two", Path: "two.env"}}}},
+		latestCommitErr: errors.New("synthetic metadata failure"),
+	}
+	settings := serviceSettings(false)
+	settings.Rules = []Rule{
+		{Enabled: true, Name: "first", Keywords: []string{"first.example", "secret"}},
+		{Enabled: true, Name: "second", Keywords: []string{"second.example", "secret"}},
+	}
+	detector := serviceTestDetector{candidates: []Candidate{{Fingerprint: "sanitized-fingerprint"}}}
+	service, err := newService(store, settings, provider, detector, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.execute(context.Background(), service.settings, provider, detector)
+	run := waitForServiceRun(t, store.finished)
+	if run.Status != "partial" || run.Requests != 2 || run.Processed != 0 || len(provider.callSnapshot()) != 1 || len(provider.metadataCallSnapshot()) != 1 {
+		t.Fatalf("metadata failure did not stop run: run=%+v searches=%d metadata=%d", run, len(provider.callSnapshot()), len(provider.metadataCallSnapshot()))
+	}
+	store.mu.Lock()
+	state := store.states[`"first.example" AND "secret" in:file`]
+	store.mu.Unlock()
+	if state.LastSuccessAt != nil {
+		t.Fatalf("partial freshness run advanced last success: %+v", state)
+	}
+}
+
+func TestServiceSharesMetadataBudgetAcrossTruncatedRules(t *testing.T) {
+	store := newServiceTestPersistence()
+	makeItems := func(offset, count int) []SearchItem {
+		items := make([]SearchItem, 0, count)
+		for i := 0; i < count; i++ {
+			n := offset + i
+			items = append(items, SearchItem{RepoNodeID: fmt.Sprintf("R_%d", n), Repository: "owner/repo", Path: fmt.Sprintf("config-%d.env", n), BlobSHA: strings.Repeat("a", 40)})
+		}
+		return items
+	}
+	provider := &serviceTestProvider{results: []SearchResult{
+		{Items: makeItems(0, 100), Truncated: true},
+		{Items: makeItems(100, 100), Truncated: true},
+		{Items: makeItems(200, 100), Truncated: true},
+	}}
+	settings := serviceSettings(false)
+	settings.Rules = []Rule{
+		{Enabled: true, Name: "first", Keywords: []string{"first.example", "secret"}},
+		{Enabled: true, Name: "second", Keywords: []string{"second.example", "secret"}},
+		{Enabled: true, Name: "third", Keywords: []string{"third.example", "secret"}},
+	}
+	detector := serviceTestDetector{candidates: []Candidate{{Fingerprint: "sanitized-fingerprint"}}}
+	service, err := newService(store, settings, provider, detector, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.execute(context.Background(), service.settings, provider, detector)
+	run := waitForServiceRun(t, store.finished)
+	wantMetadata := maxFreshnessChecksPerRun
+	metadataCalls := provider.metadataCallSnapshot()
+	if run.Status != "partial" || run.Requests != wantMetadata+len(settings.Rules) || run.Detected != wantMetadata ||
+		len(provider.callSnapshot()) != len(settings.Rules) || len(metadataCalls) != wantMetadata || run.Error == "" {
+		t.Fatalf("metadata budget run=%+v searches=%d metadata=%d", run, len(provider.callSnapshot()), len(provider.metadataCallSnapshot()))
+	}
+	seenThirdRule := false
+	for _, item := range metadataCalls {
+		if strings.HasPrefix(item.Path, "config-2") {
+			seenThirdRule = true
+			break
+		}
+	}
+	if !seenThirdRule {
+		t.Fatal("a persistently truncated earlier rule starved the final rule")
+	}
+	store.mu.Lock()
+	for _, state := range store.states {
+		if state.LastStatus == "partial" && !strings.Contains(state.LastError, "limit") {
+			store.mu.Unlock()
+			t.Fatalf("budget-limited state lost its reason: %+v", state)
+		}
+	}
+	store.mu.Unlock()
+}
+
+func TestServicePersistsCursorAcrossBudgetLimitedRuns(t *testing.T) {
+	store := newServiceTestPersistence()
+	items := make([]SearchItem, 0, 100)
+	for i := 0; i < 100; i++ {
+		items = append(items, SearchItem{RepoNodeID: fmt.Sprintf("R_%d", i), Repository: "owner/repo", Path: fmt.Sprintf("config-%d.env", i), BlobSHA: strings.Repeat("a", 40)})
+	}
+	provider := &serviceTestProvider{results: []SearchResult{
+		{Items: items, Truncated: true, ETag: `"snapshot-v1"`}, {}, {},
+		{Items: items, Truncated: true, ETag: `"snapshot-v1"`}, {}, {},
+		{Items: items, Truncated: true, ETag: `"snapshot-v2"`}, {}, {},
+	}}
+	settings := serviceSettings(false)
+	settings.Rules = []Rule{
+		{Enabled: true, Name: "first", Keywords: []string{"first.example", "secret"}},
+		{Enabled: true, Name: "second", Keywords: []string{"second.example", "secret"}},
+		{Enabled: true, Name: "third", Keywords: []string{"third.example", "secret"}},
+	}
+	detector := serviceTestDetector{candidates: []Candidate{{Fingerprint: "sanitized-fingerprint"}}}
+	service, err := newService(store, settings, provider, detector, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perRuleLimit := maxFreshnessChecksPerRun / len(settings.Rules)
+	service.execute(context.Background(), service.settings, provider, detector)
+	firstRun := waitForServiceRun(t, store.finished)
+	store.mu.Lock()
+	firstState := store.states[`"first.example" AND "secret" in:file`]
+	store.mu.Unlock()
+	if firstRun.Status != "partial" || firstState.FreshnessCursor != perRuleLimit || firstState.FreshnessCursorETag != `"snapshot-v1"` {
+		t.Fatalf("first cursor run=%+v state=%+v", firstRun, firstState)
+	}
+	service.execute(context.Background(), service.settings, provider, detector)
+	secondRun := waitForServiceRun(t, store.finished)
+	metadataCalls := provider.metadataCallSnapshot()
+	if secondRun.Status != "partial" || len(metadataCalls) != 2*perRuleLimit || metadataCalls[perRuleLimit].Path != fmt.Sprintf("config-%d.env", perRuleLimit) {
+		t.Fatalf("second cursor run=%+v metadata=%d first-new=%q", secondRun, len(metadataCalls), metadataCalls[perRuleLimit].Path)
+	}
+	service.execute(context.Background(), service.settings, provider, detector)
+	thirdRun := waitForServiceRun(t, store.finished)
+	metadataCalls = provider.metadataCallSnapshot()
+	if thirdRun.Status != "partial" || len(metadataCalls) != 3*perRuleLimit || metadataCalls[2*perRuleLimit].Path != "config-0.env" {
+		t.Fatalf("changed snapshot did not reset cursor: run=%+v metadata=%d first-new=%q", thirdRun, len(metadataCalls), metadataCalls[2*perRuleLimit].Path)
+	}
+}
+
+func TestServiceDoesNotAdvanceCursorWhenCandidateTransactionFails(t *testing.T) {
+	store := newServiceTestPersistence()
+	items := make([]SearchItem, 0, 100)
+	for i := 0; i < 100; i++ {
+		items = append(items, SearchItem{RepoNodeID: fmt.Sprintf("R_%d", i), Repository: "owner/repo", Path: fmt.Sprintf("config-%d.env", i), BlobSHA: strings.Repeat("a", 40)})
+	}
+	provider := &serviceTestProvider{results: []SearchResult{
+		{Items: items, Truncated: true, ETag: `"snapshot"`}, {}, {},
+		{Items: items, Truncated: true, ETag: `"snapshot"`}, {}, {},
+	}}
+	settings := serviceSettings(false)
+	settings.Rules = []Rule{
+		{Enabled: true, Name: "first", Keywords: []string{"first.example", "secret"}},
+		{Enabled: true, Name: "second", Keywords: []string{"second.example", "secret"}},
+		{Enabled: true, Name: "third", Keywords: []string{"third.example", "secret"}},
+	}
+	detector := serviceTestDetector{candidates: []Candidate{{Fingerprint: "sanitized-fingerprint"}}}
+	service, err := newService(store, settings, provider, detector, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.upsertErr = errors.New("synthetic transaction failure")
+	service.execute(context.Background(), service.settings, provider, detector)
+	_ = waitForServiceRun(t, store.finished)
+	store.mu.Lock()
+	failedState := store.states[`"first.example" AND "secret" in:file`]
+	store.upsertErr = nil
+	store.mu.Unlock()
+	if failedState.FreshnessCursor != 0 {
+		t.Fatalf("failed transaction advanced cursor: %+v", failedState)
+	}
+	perRuleLimit := maxFreshnessChecksPerRun / len(settings.Rules)
+	service.execute(context.Background(), service.settings, provider, detector)
+	_ = waitForServiceRun(t, store.finished)
+	metadataCalls := provider.metadataCallSnapshot()
+	if len(metadataCalls) != 2*perRuleLimit || metadataCalls[perRuleLimit].Path != "config-0.env" {
+		t.Fatalf("retry skipped uncommitted batch: metadata=%d first-retry=%q", len(metadataCalls), metadataCalls[perRuleLimit].Path)
+	}
+}
+
+func TestServiceSkipsItemLocalMetadataErrorAndContinuesRules(t *testing.T) {
+	store := newServiceTestPersistence()
+	provider := &serviceTestProvider{
+		results: []SearchResult{
+			{Items: []SearchItem{{Repository: "owner/one", Path: "deleted.env"}, {Repository: "owner/one", Path: "live.env"}}},
+			{Items: []SearchItem{{Repository: "owner/two", Path: "live.env"}}},
+		},
+		latestCommitErrs: []error{errPathCommitUnavailable, nil, nil},
+	}
+	settings := serviceSettings(false)
+	settings.Rules = []Rule{
+		{Enabled: true, Name: "first", Keywords: []string{"first.example", "secret"}},
+		{Enabled: true, Name: "second", Keywords: []string{"second.example", "secret"}},
+	}
+	detector := serviceTestDetector{candidates: []Candidate{{Fingerprint: "sanitized-fingerprint"}}}
+	service, err := newService(store, settings, provider, detector, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.execute(context.Background(), service.settings, provider, detector)
+	run := waitForServiceRun(t, store.finished)
+	if run.Status != "partial" || len(provider.callSnapshot()) != 2 || len(provider.metadataCallSnapshot()) != 3 || run.Detected != 2 {
+		t.Fatalf("item-local metadata error blocked later work: run=%+v searches=%d metadata=%d", run, len(provider.callSnapshot()), len(provider.metadataCallSnapshot()))
+	}
+}
+
+func TestServiceMetadataRateLimitStopsRunAndPreservesReset(t *testing.T) {
+	store := newServiceTestPersistence()
+	reset := time.Now().UTC().Add(5 * time.Minute)
+	provider := &serviceTestProvider{
+		result:          SearchResult{Items: []SearchItem{{Repository: "owner/one", Path: "one.env"}}},
+		latestCommitErr: &HTTPStatusError{StatusCode: 429, RateLimited: true, Retryable: true, RateReset: &reset},
+	}
+	settings := serviceSettings(false)
+	settings.Rules = []Rule{
+		{Enabled: true, Name: "first", Keywords: []string{"first.example", "secret"}},
+		{Enabled: true, Name: "second", Keywords: []string{"second.example", "secret"}},
+	}
+	detector := serviceTestDetector{candidates: []Candidate{{Fingerprint: "sanitized-fingerprint"}}}
+	service, err := newService(store, settings, provider, detector, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotReset := service.execute(context.Background(), service.settings, provider, detector)
+	run := waitForServiceRun(t, store.finished)
+	if run.Status != "rate_limited" || run.RateResetAt == nil || !run.RateResetAt.Equal(reset) || gotReset == nil || !gotReset.Equal(reset) ||
+		len(provider.callSnapshot()) != 1 || len(provider.metadataCallSnapshot()) != 1 {
+		t.Fatalf("metadata rate limit = run:%+v returned:%v searches:%d metadata:%d", run, gotReset, len(provider.callSnapshot()), len(provider.metadataCallSnapshot()))
+	}
+}
+
+func TestServiceListAndStatsApplyCurrentLookbackWindow(t *testing.T) {
+	store := newServiceTestPersistence()
+	settings := serviceSettings(false, "example.com", "secret")
+	settings.LookbackDays = 30
+	service, err := newService(store, settings, &serviceTestProvider{}, serviceTestDetector{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().UTC().AddDate(0, 0, -30)
+	userCutoff := time.Now().UTC().AddDate(-10, 0, 0)
+	if _, err = service.List(context.Background(), ListFilter{Page: 1, PageSize: 20, SourceUpdatedAfter: &userCutoff}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Stats(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now().UTC().AddDate(0, 0, -30)
+	store.mu.Lock()
+	listCutoff := copyTime(store.listFilter.SourceUpdatedAfter)
+	statsCutoff := copyTime(store.statsAfter)
+	store.mu.Unlock()
+	for name, cutoff := range map[string]*time.Time{"list": listCutoff, "stats": statsCutoff} {
+		if cutoff == nil || cutoff.Before(before) || cutoff.After(after) {
+			t.Fatalf("%s cutoff = %v, want between %v and %v", name, cutoff, before, after)
+		}
+	}
+}
+
+func TestServiceHidesStaleFindingDeepLinksAndUpdates(t *testing.T) {
+	store := newServiceTestPersistence()
+	freshAt := time.Now().UTC().AddDate(0, 0, -7)
+	staleAt := time.Now().UTC().AddDate(0, 0, -400)
+	store.findings["fresh"] = Finding{ID: "fresh", Status: "new", SourceUpdatedAt: &freshAt}
+	store.findings["stale"] = Finding{ID: "stale", Status: "new", SourceUpdatedAt: &staleAt}
+	store.findings["legacy"] = Finding{ID: "legacy", Status: "new"}
+	service, err := newService(store, serviceSettings(false, "example.com", "secret"), &serviceTestProvider{}, serviceTestDetector{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finding, getErr := service.Get(context.Background(), "fresh"); getErr != nil || finding.ID != "fresh" {
+		t.Fatalf("fresh finding = %+v, %v", finding, getErr)
+	}
+	for _, id := range []string{"stale", "legacy"} {
+		if _, getErr := service.Get(context.Background(), id); !errors.Is(getErr, ErrNotFound) {
+			t.Fatalf("%s finding remained visible: %v", id, getErr)
+		}
+		if _, updateErr := service.UpdateStatus(context.Background(), id, "triaged"); !errors.Is(updateErr, ErrNotFound) {
+			t.Fatalf("%s finding remained mutable: %v", id, updateErr)
+		}
+	}
+	if finding, updateErr := service.UpdateStatus(context.Background(), "fresh", "triaged"); updateErr != nil || finding.Status != "triaged" {
+		t.Fatalf("fresh finding update = %+v, %v", finding, updateErr)
+	}
+}
+
+func TestServiceReusesPathCommitFreshnessAcrossRules(t *testing.T) {
+	store := newServiceTestPersistence()
+	item := SearchItem{
+		RepoNodeID: "R_shared", Repository: "owner/repo", Path: "config.env", BlobSHA: strings.Repeat("a", 40),
+		HTMLURL: "https://github.com/owner/repo/blob/main/config.env",
+	}
+	provider := &serviceTestProvider{
+		results:        []SearchResult{{Items: []SearchItem{item}}, {Items: []SearchItem{item}}},
+		latestCommitAt: time.Now().UTC().AddDate(0, 0, -7),
+	}
+	settings := serviceSettings(false)
+	settings.Rules = []Rule{
+		{Enabled: true, Name: "secret", Keywords: []string{"example.com", "secret"}},
+		{Enabled: true, Name: "api-key", Keywords: []string{"example.com", "api_key"}},
+	}
+	detector := serviceTestDetector{candidates: []Candidate{{Fingerprint: "sanitized-fingerprint"}}}
+	service, err := newService(store, settings, provider, detector, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.execute(context.Background(), service.settings, provider, detector)
+	run := waitForServiceRun(t, store.finished)
+	if run.Status != "success" || run.Requests != 3 || run.Detected != 2 {
+		t.Fatalf("run = %+v", run)
+	}
+	if got := len(provider.metadataCallSnapshot()); got != 1 {
+		t.Fatalf("metadata calls = %d, want one cached lookup", got)
 	}
 }
 
@@ -427,7 +917,7 @@ func TestServiceExecutesEnabledNamedRulesSeriallyAndAggregatesRunStats(t *testin
 	}
 	service.execute(context.Background(), service.settings, provider, service.detector)
 	run := waitForServiceRun(t, store.finished)
-	if run.Status != "success" || run.Requests != 2 || run.Processed != 3 || run.Detected != 3 || run.RateRemaining != 8 {
+	if run.Status != "success" || run.Requests != 5 || run.Processed != 3 || run.Detected != 3 || run.RateRemaining != 8 {
 		t.Fatalf("aggregated run = %+v", run)
 	}
 	calls := provider.callSnapshot()
@@ -449,7 +939,7 @@ func TestServiceExecutesEnabledNamedRulesSeriallyAndAggregatesRunStats(t *testin
 	}
 	if len(runtime.Rules) != 3 || runtime.Rules[0].Name != "example-corp-clientid" || runtime.Rules[0].Query != `"clientid" AND "vendor.example" in:file` ||
 		runtime.Rules[1].Enabled || runtime.Rules[2].Name != "access-key" || runtime.RequestIntervalSeconds != MinIntervalSeconds ||
-		runtime.LastRequests != 2 || runtime.LastProcessed != 3 || runtime.LastDetected != 3 {
+		runtime.LastRequests != 5 || runtime.LastProcessed != 3 || runtime.LastDetected != 3 || runtime.LookbackDays != DefaultLookbackDays {
 		t.Fatalf("runtime named rule status = %+v", runtime)
 	}
 	if len(runtime.Keywords) != 2 || runtime.Query != runtime.Rules[0].Query {
@@ -550,7 +1040,10 @@ func TestRunTimeoutScalesWithEnabledRuleCount(t *testing.T) {
 	settings.IntervalSeconds = 60
 	settings.RequestTimeoutSeconds = 45
 	if got := runTimeoutForRules(settings, MaxRules); got < 61*time.Minute {
-		t.Fatalf("32-rule timeout = %s, want at least 61m", got)
+		t.Fatalf("%d-rule timeout = %s, want at least 61m", MaxRules, got)
+	}
+	if got := runTimeoutForRules(settings, 14); got < 33*time.Minute {
+		t.Fatalf("14-rule timeout = %s, metadata allowance was omitted", got)
 	}
 	if got := runTimeoutForRules(settings, 1); got != 30*time.Minute {
 		t.Fatalf("single-rule timeout = %s, want 30m", got)

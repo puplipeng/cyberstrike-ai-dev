@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"cyberstrike-ai/internal/agent"
+	"cyberstrike-ai/internal/assetmonitor"
 	"cyberstrike-ai/internal/audit"
 	"cyberstrike-ai/internal/authctx"
 	"cyberstrike-ai/internal/c2"
@@ -77,9 +78,16 @@ type App struct {
 	c2Handler          *handler.C2Handler        // C2 REST（与 Manager 生命周期同步）
 	auditSvc           *audit.Service
 	intelligence       *vulnintel.Service
+	assetMonitor       *assetmonitor.Service
 	githubLeakMonitor  *githubleak.Service
 	skillLibrary       *skilllibrary.Service
 	sshHandler         *handler.SSHHandler
+}
+
+func resolveRuntimeSkillsDir(cfg *config.Config, configPath string) string {
+	skillsDir := skillpackage.SkillsRootFromConfig(cfg.SkillsDir, configPath)
+	cfg.ResolvedSkillsDir = skillsDir
+	return skillsDir
 }
 
 // New 创建新应用
@@ -126,6 +134,25 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("初始化 GitHub 泄露监控失败: %w", err)
+	}
+	assetMonitorStore, err := assetmonitor.NewStore(context.Background(), db.DB)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("初始化资产新增监控存储失败: %w", err)
+	}
+	quakeAPIKey := strings.TrimSpace(os.Getenv("QUAKE_API_KEY"))
+	if quakeAPIKey == "" {
+		quakeAPIKey = strings.TrimSpace(cfg.Quake.APIKey)
+	}
+	quakeProvider, err := assetmonitor.NewQuakeProvider(quakeAPIKey, cfg.Quake.BaseURL, nil)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("初始化 Quake 资产发现客户端失败: %w", err)
+	}
+	assetMonitorService, err := assetmonitor.NewService(assetMonitorStore, db, quakeProvider, log.Logger)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("初始化资产新增监控失败: %w", err)
 	}
 
 	// 认证管理器（数据库初始化后挂载 RBAC）
@@ -219,7 +246,7 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 	// 创建Agent
 	maxIterations := cfg.Agent.MaxIterations
 	if maxIterations <= 0 {
-		maxIterations = 30 // 默认值
+		maxIterations = config.DefaultAgentMaxIterations
 	}
 	agent := agent.NewAgent(&cfg.OpenAI, &cfg.Agent, mcpServer, externalMCPMgr, log.Logger, maxIterations)
 	agent.UpdateToolDescriptionMode(cfg.Security.ToolDescriptionMode)
@@ -371,7 +398,7 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 		configPath = "config.yaml"
 	}
 
-	skillsDir := skillpackage.SkillsRootFromConfig(cfg.SkillsDir, configPath)
+	skillsDir := resolveRuntimeSkillsDir(cfg, configPath)
 	log.Logger.Debug("Skills 目录（Eino ADK skill 中间件 + Web 管理 API）", zap.String("skillsDir", skillsDir))
 	configDir := filepath.Dir(configPath)
 	plantaskRel := strings.TrimSpace(cfg.MultiAgent.EinoMiddleware.PlantaskRelDir)
@@ -497,6 +524,7 @@ func New(cfg *config.Config, log *logger.Logger, configPath string) (*App, error
 		c2Handler:          c2Handler,
 		auditSvc:           auditSvc,
 		intelligence:       vulnintel.NewService(intelStore, log.Logger),
+		assetMonitor:       assetMonitorService,
 		githubLeakMonitor:  githubLeakMonitor,
 	}
 	configHandler.SetGitHubLeakMonitorUpdater(app)
@@ -706,6 +734,10 @@ func (a *App) RunWithContext(ctx context.Context) error {
 		a.githubLeakMonitor.Start(ctx)
 		defer a.githubLeakMonitor.Close()
 	}
+	if a.assetMonitor != nil {
+		a.assetMonitor.Start(ctx)
+		defer a.assetMonitor.Close()
+	}
 	// 启动MCP服务器（如果启用）
 	var mcpServer *http.Server
 	if a.config.MCP.Enabled {
@@ -823,6 +855,9 @@ func (a *App) Shutdown() {
 	}
 	if a.githubLeakMonitor != nil {
 		a.githubLeakMonitor.Close()
+	}
+	if a.assetMonitor != nil {
+		a.assetMonitor.Close()
 	}
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	_ = einoobserve.ShutdownOtel(shutdownCtx)
@@ -971,6 +1006,7 @@ func githubLeakSettingsFromConfig(cfg config.GitHubLeakMonitorConfig) githubleak
 		RequestTimeoutSeconds: cfg.RequestTimeoutSecondsEffective(),
 		PollIntervalSeconds:   interval,
 		MaxResultsPerKeyword:  cfg.PerPageEffective(),
+		LookbackDays:          cfg.LookbackDaysEffective(),
 	}
 }
 
@@ -1126,6 +1162,18 @@ func setupRoutes(
 		protected.POST("/fofa/parse", fofaHandler.ParseNaturalLanguage)
 
 		// 资产管理
+		if app.assetMonitor != nil {
+			assetMonitorHandler := handler.NewAssetMonitorHandler(app.assetMonitor, app.db, app.logger.Logger)
+			assetMonitorHandler.SetAudit(auditSvc)
+			protected.GET("/asset-monitors", security.RequirePermission("project:read"), assetMonitorHandler.List)
+			protected.POST("/asset-monitors", security.RequirePermission("project:write"), assetMonitorHandler.Create)
+			protected.GET("/asset-monitors/:id", security.RequirePermission("project:read"), assetMonitorHandler.Get)
+			protected.PATCH("/asset-monitors/:id", security.RequirePermission("project:write"), assetMonitorHandler.Update)
+			protected.DELETE("/asset-monitors/:id", security.RequirePermission("project:write"), assetMonitorHandler.Delete)
+			protected.POST("/asset-monitors/:id/run", security.RequirePermission("project:write"), security.RequirePermission("fofa:execute"), assetMonitorHandler.Run)
+			protected.GET("/asset-monitors/:id/runs", security.RequirePermission("project:read"), assetMonitorHandler.Runs)
+			protected.GET("/asset-monitors/:id/runs/:runId/assets", security.RequirePermission("project:read"), assetMonitorHandler.RunAssets)
+		}
 		protected.GET("/assets", assetHandler.List)
 		protected.GET("/assets/selection", assetHandler.Selection)
 		protected.GET("/assets/stats", assetHandler.Stats)

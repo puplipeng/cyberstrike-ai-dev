@@ -28,8 +28,8 @@ func TestStorePersistsCombinedRuleStateThroughApplicationPostgresWrapper(t *test
 	}
 	now := time.Now().UTC()
 	want := KeywordState{
-		Keyword: rule.Query, ETag: `W/"integration"`, LastAttemptAt: &now,
-		LastSuccessAt: &now, LastStatus: "partial", Incomplete: true, Truncated: true,
+		Keyword: rule.Query, ETag: `W/"integration"`, FreshnessPolicy: freshnessPolicy(365), FreshnessCheckedAt: &now,
+		FreshnessCursor: 7, FreshnessCursorETag: `"snapshot"`, LastAttemptAt: &now, LastSuccessAt: &now, LastStatus: "partial", Incomplete: true, Truncated: true,
 	}
 	if err = store.SaveKeywordState(context.Background(), want); err != nil {
 		t.Fatal(err)
@@ -38,7 +38,8 @@ func TestStorePersistsCombinedRuleStateThroughApplicationPostgresWrapper(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Keyword != want.Keyword || got.ETag != want.ETag || got.LastStatus != want.LastStatus || !got.Incomplete || !got.Truncated || got.LastAttemptAt == nil || got.LastSuccessAt == nil {
+	if got.Keyword != want.Keyword || got.ETag != want.ETag || got.FreshnessPolicy != want.FreshnessPolicy || got.FreshnessCheckedAt == nil || got.FreshnessCursor != want.FreshnessCursor || got.FreshnessCursorETag != want.FreshnessCursorETag ||
+		got.LastStatus != want.LastStatus || !got.Incomplete || !got.Truncated || got.LastAttemptAt == nil || got.LastSuccessAt == nil {
 		t.Fatalf("persisted state = %+v", got)
 	}
 }
@@ -93,6 +94,7 @@ SELECT 'legacy-'||g,'new','"clientid" AND "vendor.example" in:file','owner/repo'
 		RuleName: "example-corp-clientid", Keyword: rule.Query, Repository: "owner/new-repo", Path: "config.env",
 		BlobSHA: strings.Repeat("b", 40), SecretType: "oauth_client_id", Confidence: "suspected", Severity: "low",
 		MaskedExcerpt: "clientId=<redacted:oauth_client_id>", HTMLURL: "https://github.com/owner/new-repo/blob/main/config.env",
+		SourceUpdatedAt: time.Now().UTC().Add(-time.Hour),
 	}
 	first, second := base, base
 	first.Fingerprint, second.Fingerprint = strings.Repeat("c", 64), strings.Repeat("d", 64)
@@ -103,13 +105,32 @@ SELECT 'legacy-'||g,'new','"clientid" AND "vendor.example" in:file','owner/repo'
 	if inserted != 2 || updated != 0 {
 		t.Fatalf("fingerprint identity = inserted:%d updated:%d", inserted, updated)
 	}
-	var requests, truncated int
-	if err = db.QueryRowContext(context.Background(), `SELECT
- (SELECT COUNT(*) FROM information_schema.columns WHERE table_name='github_leak_runs' AND column_name='requests'),
- (SELECT COUNT(*) FROM information_schema.columns WHERE table_name='github_leak_keyword_state' AND column_name='truncated')`).Scan(&requests, &truncated); err != nil {
+	cutoff := time.Now().UTC().Add(-2 * time.Hour)
+	listed, err := store.List(context.Background(), ListFilter{Page: 1, PageSize: 20, SourceUpdatedAfter: &cutoff})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if requests != 1 || truncated != 1 {
-		t.Fatalf("migration columns = requests:%d truncated:%d", requests, truncated)
+	if listed.Total != 2 || len(listed.Items) != 2 || listed.Items[0].SourceUpdatedAt == nil {
+		t.Fatalf("fresh source list = %+v", listed)
+	}
+	stats, err := store.Stats(context.Background(), &cutoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Total != 2 || stats.New != 2 {
+		t.Fatalf("fresh source stats = %+v", stats)
+	}
+	var requests, truncated, sourceUpdated, freshnessChecked, freshnessCursor, freshnessCursorETag int
+	if err = db.QueryRowContext(context.Background(), `SELECT
+	 (SELECT COUNT(*) FROM information_schema.columns WHERE table_name='github_leak_runs' AND column_name='requests'),
+	 (SELECT COUNT(*) FROM information_schema.columns WHERE table_name='github_leak_keyword_state' AND column_name='truncated'),
+	 (SELECT COUNT(*) FROM information_schema.columns WHERE table_name='github_leak_findings' AND column_name='source_updated_at'),
+	 (SELECT COUNT(*) FROM information_schema.columns WHERE table_name='github_leak_keyword_state' AND column_name='freshness_checked_at'),
+	 (SELECT COUNT(*) FROM information_schema.columns WHERE table_name='github_leak_keyword_state' AND column_name='freshness_cursor'),
+	 (SELECT COUNT(*) FROM information_schema.columns WHERE table_name='github_leak_keyword_state' AND column_name='freshness_cursor_etag')`).Scan(&requests, &truncated, &sourceUpdated, &freshnessChecked, &freshnessCursor, &freshnessCursorETag); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || truncated != 1 || sourceUpdated != 1 || freshnessChecked != 1 || freshnessCursor != 1 || freshnessCursorETag != 1 {
+		t.Fatalf("migration columns = requests:%d truncated:%d source:%d freshness:%d cursor:%d cursor_etag:%d", requests, truncated, sourceUpdated, freshnessChecked, freshnessCursor, freshnessCursorETag)
 	}
 }

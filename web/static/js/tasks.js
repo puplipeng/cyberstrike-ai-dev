@@ -880,6 +880,8 @@ async function refreshBatchProjectSelectOptions() {
 
 // 显示新建任务模态框
 async function showBatchImportModal() {
+    try { await loadScanAIChannelSelect('batch-queue-ai-channel'); }
+    catch (error) { appAlert(error.message); return; }
     const modal = document.getElementById('batch-import-modal');
     const input = document.getElementById('batch-tasks-input');
     const titleInput = document.getElementById('batch-queue-title');
@@ -1064,6 +1066,7 @@ async function createBatchQueue() {
                 executeNow,
                 projectId,
                 concurrency,
+                aiChannelId: readScanAIChannel('batch-queue-ai-channel'),
             }),
         });
         
@@ -1854,6 +1857,7 @@ async function showBatchQueueDetail(queueId) {
                 ${showProgressNoteInModal ? `<p class="batch-queue-detail-hero__note">${escapeHtml(pres.progressNote)}</p>` : ''}
             </section>
             <section class="batch-queue-detail-kv">
+                <div class="bq-kv"><span class="bq-kv__k">AI 通道</span><span class="bq-kv__v" id="bq-channel-val">${escapeHtml(queue.aiChannelId || '未固定（使用全局默认）')}${result.aiChannelModel ? ' · ' + escapeHtml(result.aiChannelModel) : ''}${result.aiChannelError ? ' · ' + escapeHtml(result.aiChannelError) : ''} ${batchQueueAllowsChannelEdit(queue) ? '<button type="button" class="btn-secondary" onclick="editBatchAIChannel()">修改通道</button>' : ''}</span></div>
                 <div class="bq-kv"><span class="bq-kv__k">${escapeHtml(_t('batchQueueDetailModal.queueTitle'))}</span><span class="bq-kv__v" id="bq-title-val">${allowSubtaskMutation ? `<span class="bq-inline-editable" onclick="startInlineEditTitle()" title="${escapeHtml(_t('common.edit'))}">${escapeHtml(queue.title || _t('tasks.batchQueueUntitled'))}</span>` : escapeHtml(queue.title || _t('tasks.batchQueueUntitled'))}</span></div>
                 <div class="bq-kv"><span class="bq-kv__k">${escapeHtml(_t('batchQueueDetailModal.role'))}</span><span class="bq-kv__v" id="bq-role-val">${allowSubtaskMutation ? `<span class="bq-inline-editable" onclick="startInlineEditRole()" title="${escapeHtml(_t('common.edit'))}">${roleLineVal}</span>` : roleLineVal}</span></div>
                 <div class="bq-kv"><span class="bq-kv__k">${escapeHtml(_t('batchImportModal.agentMode'))}</span><span class="bq-kv__v" id="bq-agentmode-val">${allowSubtaskMutation ? `<span class="bq-inline-editable" onclick="startInlineEditAgentMode()" title="${escapeHtml(_t('common.edit'))}">${escapeHtml(agentModeText)}</span>` : escapeHtml(agentModeText)}</span></div>
@@ -2920,3 +2924,82 @@ document.addEventListener('DOMContentLoaded', function () {
     initBatchQueuesFilterSelects();
     initBatchFormSelects();
 });
+
+// Scan channels are explicit queue settings, not the global model default.
+async function loadScanAIChannelSelect(selectId, requestedID) {
+    const select = document.getElementById(selectId);
+    if (!select) throw new Error('通道选择控件未加载，请刷新页面');
+    select.disabled = true;
+    select.replaceChildren();
+    const response = await apiFetch('/api/config');
+    if (!response.ok) throw new Error('无法加载 AI 通道，请检查权限或网络');
+    const config = await response.json();
+    const ai = config.ai || {};
+    const channels = ai.channels || {};
+    const ids = Object.keys(channels).sort();
+    if (!ids.length) throw new Error('尚未配置 AI 通道');
+    let preferred = requestedID;
+    if (preferred === undefined) {
+        preferred = typeof selectedChatAIChannelId === 'function' ? selectedChatAIChannelId() : '';
+        if (!preferred) { try { preferred = localStorage.getItem('cyberstrike-chat-ai-channel') || ''; } catch (_) {} }
+    }
+    if (requestedID && !channels[requestedID]) {
+        const missing = document.createElement('option');
+        missing.value = requestedID;
+        missing.textContent = `通道已删除：${requestedID}（请选择其他通道）`;
+        missing.disabled = true;
+        select.appendChild(missing);
+    }
+    ids.forEach(id => {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = `${channels[id].name || id} · ${channels[id].model || ''} (${id})`;
+        select.appendChild(option);
+    });
+    select.value = requestedID || (channels[preferred] ? preferred : (channels[ai.default_channel] ? ai.default_channel : ids[0]));
+    select.disabled = false;
+}
+
+function readScanAIChannel(selectId) {
+    const select = document.getElementById(selectId);
+    if (!select || select.disabled || !select.value) throw new Error('请选择已配置的 AI 通道');
+    return select.value;
+}
+
+async function editBatchAIChannel() {
+    const queueId = batchQueuesState.currentQueueId;
+    const container = document.getElementById('bq-channel-val');
+    if (!queueId || !container) return;
+    stopBatchQueueRefresh();
+    try {
+        const detailResp = await apiFetch(`/api/batch-tasks/${queueId}`);
+        if (!detailResp.ok) throw new Error('读取队列失败');
+        const {queue} = await detailResp.json();
+        if (!batchQueueAllowsChannelEdit(queue)) throw new Error('请先暂停队列');
+        container.innerHTML = '<span class="bq-inline-edit-controls"><select id="bq-edit-channel"></select><button type="button" id="bq-save-channel" class="btn-primary" disabled>保存</button><button type="button" id="bq-cancel-channel" class="btn-secondary">取消</button></span>';
+        const cancel = () => showBatchQueueDetail(queueId);
+        document.getElementById('bq-cancel-channel').onclick = cancel;
+        container.onkeydown = event => { if (event.key === 'Escape') cancel(); };
+        await loadScanAIChannelSelect('bq-edit-channel', queue.aiChannelId || '');
+        const save = document.getElementById('bq-save-channel');
+        save.disabled = false;
+        save.onclick = async () => {
+            save.disabled = true;
+            try {
+                const aiChannelId = readScanAIChannel('bq-edit-channel');
+                const response = await apiFetch(`/api/batch-tasks/${queueId}/metadata`, {
+                    method: 'PUT', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({title:queue.title || '', role:queue.role || '', aiChannelId})
+                });
+                if (!response.ok) { const error = await response.json(); throw new Error(error.error || '保存通道失败'); }
+                await showBatchQueueDetail(queueId);
+                refreshBatchQueues();
+            } catch (error) { appAlert(error.message); save.disabled = false; }
+        };
+        document.getElementById('bq-edit-channel').focus();
+    } catch (error) { appAlert(error.message); showBatchQueueDetail(queueId); }
+}
+// Actual executor activity is checked by the server; old subtask rows do not block channel edits.
+function batchQueueAllowsChannelEdit(queue) {
+    return !!queue && ['pending', 'paused', 'completed', 'cancelled'].includes(queue.status);
+}

@@ -51,7 +51,7 @@ OAuth2 的 token 端点需要客户端认证。Spring Security OAuth2 默认支�
 ```bash
 # Basic Auth 方式
 curl -sk -X POST "https://target.com/biz-api/oauth/token" \
-  -u "client-api-resource:guessed_secret" \
+  -u "${OAUTH_CLIENT_ID}:${OAUTH_CLIENT_SECRET}" \
   -d "grant_type=client_credentials"
 
 # 常见 client_secret 字典
@@ -268,13 +268,13 @@ Tomcat 8.0.x（2015年发布，2018年EOL）存在已知 CVE：
 **重要发现：** 在某些 CAS/SSO 系统中，密码在提交前会经过前端 JS 哈希（SM3/SHA256 多次迭代）：
 
 ```
-URL: POST /cas/login?service=...&renew=true&username=xxx&password=Cc11200...
-Body: username=2905220233&password=0a9c850cda5a331d95c2de188a78cfde...
+URL: POST /cas/login?service=...&renew=true&username=xxx&password=<PASSWORD>
+Body: username=<USERNAME>&password=<PASSWORD>
        [512 hex chars = 256 bytes hash, 非标准哈希长度]
 ```
 
 特征：
-- URL 中的 `password=Cc11200...` 是明文密码（被用户输入时 URL 参数携带）
+- URL 中的 `password=<PASSWORD>` 是明文密码（被用户输入时 URL 参数携带）
 - POST body 中的 password 是计算后的哈希值
 - 哈希长度超出标准 SHA256/SM3（64 hex）→ 可能是**多次迭代**或**自定义算法**
 - 应对策略：直接使用 POST body 中的哈希值即可绕过前端逻辑，无需逆向哈希算法

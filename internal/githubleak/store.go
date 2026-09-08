@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS github_leak_findings (
  fingerprint TEXT NOT NULL,
  masked_excerpt TEXT NOT NULL,
  html_url TEXT NOT NULL,
+	source_updated_at TIMESTAMPTZ,
  first_seen_at TIMESTAMPTZ NOT NULL,
  last_seen_at TIMESTAMPTZ NOT NULL
 );
@@ -58,6 +59,7 @@ BEGIN
  END LOOP;
 END $github_leak_migration$;
 ALTER TABLE github_leak_findings ADD COLUMN IF NOT EXISTS rule_name TEXT NOT NULL DEFAULT 'legacy';
+ALTER TABLE github_leak_findings ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ;
 DO $github_leak_identity_migration$
 BEGIN
  IF EXISTS (
@@ -73,6 +75,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS github_leak_findings_identity_idx
 CREATE INDEX IF NOT EXISTS github_leak_findings_status_idx ON github_leak_findings(status,last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS github_leak_findings_keyword_idx ON github_leak_findings(keyword,last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS github_leak_findings_confidence_idx ON github_leak_findings(confidence,last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS github_leak_findings_source_updated_idx ON github_leak_findings(source_updated_at DESC);
 CREATE TABLE IF NOT EXISTS github_leak_keyword_state (
  keyword TEXT PRIMARY KEY,
  etag TEXT NOT NULL DEFAULT '',
@@ -82,9 +85,17 @@ CREATE TABLE IF NOT EXISTS github_leak_keyword_state (
  last_error TEXT NOT NULL DEFAULT '',
  incomplete BOOLEAN NOT NULL DEFAULT FALSE,
 	truncated BOOLEAN NOT NULL DEFAULT FALSE,
+	freshness_policy TEXT NOT NULL DEFAULT '',
+	freshness_checked_at TIMESTAMPTZ,
+	freshness_cursor INTEGER NOT NULL DEFAULT 0,
+	freshness_cursor_etag TEXT NOT NULL DEFAULT '',
  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE github_leak_keyword_state ADD COLUMN IF NOT EXISTS truncated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE github_leak_keyword_state ADD COLUMN IF NOT EXISTS freshness_policy TEXT NOT NULL DEFAULT '';
+ALTER TABLE github_leak_keyword_state ADD COLUMN IF NOT EXISTS freshness_checked_at TIMESTAMPTZ;
+ALTER TABLE github_leak_keyword_state ADD COLUMN IF NOT EXISTS freshness_cursor INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE github_leak_keyword_state ADD COLUMN IF NOT EXISTS freshness_cursor_etag TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS github_leak_runs (
  id TEXT PRIMARY KEY,
  status TEXT NOT NULL CHECK(status IN('running','success','partial','error','rate_limited','cancelled')),
@@ -142,12 +153,13 @@ func (s *Store) UpsertCandidates(ctx context.Context, candidates []Candidate, se
 	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.PrepareContext(ctx, `
 INSERT INTO github_leak_findings
- (id,status,rule_name,keyword,repository,path,blob_sha,line_number,secret_type,confidence,severity,fingerprint,masked_excerpt,html_url,first_seen_at,last_seen_at)
-VALUES($1,'new',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)
+	(id,status,rule_name,keyword,repository,path,blob_sha,line_number,secret_type,confidence,severity,fingerprint,masked_excerpt,html_url,source_updated_at,first_seen_at,last_seen_at)
+VALUES($1,'new',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
 ON CONFLICT(repository,path,blob_sha,keyword,secret_type,line_number,fingerprint) DO UPDATE SET
 	rule_name=EXCLUDED.rule_name,
  confidence=EXCLUDED.confidence,severity=EXCLUDED.severity,
  fingerprint=EXCLUDED.fingerprint,masked_excerpt=EXCLUDED.masked_excerpt,html_url=EXCLUDED.html_url,
+	source_updated_at=EXCLUDED.source_updated_at,
  last_seen_at=EXCLUDED.last_seen_at
 RETURNING (xmax=0)`)
 	if err != nil {
@@ -162,7 +174,7 @@ RETURNING (xmax=0)`)
 		var created bool
 		err = stmt.QueryRowContext(ctx, uuid.NewString(), candidate.RuleName, candidate.Keyword, candidate.Repository, candidate.Path,
 			candidate.BlobSHA, candidate.Line, candidate.SecretType, candidate.Confidence, candidate.Severity,
-			candidate.Fingerprint, candidate.MaskedExcerpt, candidate.HTMLURL, seenAt.UTC()).Scan(&created)
+			candidate.Fingerprint, candidate.MaskedExcerpt, candidate.HTMLURL, candidate.SourceUpdatedAt.UTC(), seenAt.UTC()).Scan(&created)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -198,6 +210,13 @@ func validateCandidate(candidate Candidate) (Candidate, error) {
 	candidate.Fingerprint = strings.ToLower(strings.TrimSpace(candidate.Fingerprint))
 	candidate.MaskedExcerpt = strings.TrimSpace(candidate.MaskedExcerpt)
 	candidate.HTMLURL = strings.TrimSpace(candidate.HTMLURL)
+	if candidate.SourceUpdatedAt.IsZero() {
+		return Candidate{}, errors.New("missing GitHub source update time")
+	}
+	candidate.SourceUpdatedAt = candidate.SourceUpdatedAt.UTC()
+	if candidate.SourceUpdatedAt.After(time.Now().UTC().Add(maxSourceFutureSkew)) {
+		return Candidate{}, errors.New("GitHub source update time is in the future")
+	}
 	if candidate.Repository == "" || len(candidate.Repository) > 300 || candidate.Path == "" || len(candidate.Path) > 2000 || hasUnsafeMetadataText(candidate.Repository) || hasUnsafeMetadataText(candidate.Path) {
 		return Candidate{}, errors.New("invalid GitHub finding metadata")
 	}
@@ -253,7 +272,7 @@ func containsControl(value string) bool {
 	return false
 }
 
-const findingColumns = `id,status,rule_name,keyword,repository,path,blob_sha,line_number,secret_type,confidence,severity,fingerprint,masked_excerpt,html_url,first_seen_at,last_seen_at`
+const findingColumns = `id,status,rule_name,keyword,repository,path,blob_sha,line_number,secret_type,confidence,severity,fingerprint,masked_excerpt,html_url,source_updated_at,first_seen_at,last_seen_at`
 
 type rowScanner interface{ Scan(...any) error }
 
@@ -261,7 +280,7 @@ func scanFinding(row rowScanner) (Finding, error) {
 	var finding Finding
 	err := row.Scan(&finding.ID, &finding.Status, &finding.RuleName, &finding.Keyword, &finding.Repository, &finding.Path, &finding.BlobSHA,
 		&finding.Line, &finding.SecretType, &finding.Confidence, &finding.Severity, &finding.Fingerprint,
-		&finding.MaskedExcerpt, &finding.HTMLURL, &finding.FirstSeenAt, &finding.LastSeenAt)
+		&finding.MaskedExcerpt, &finding.HTMLURL, &finding.SourceUpdatedAt, &finding.FirstSeenAt, &finding.LastSeenAt)
 	return finding, err
 }
 
@@ -320,6 +339,9 @@ func buildListWhere(filter ListFilter) (string, []any) {
 		query := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(filter.Query))
 		add(`LOWER(id||' '||fingerprint||' '||repository||' '||path||' '||rule_name||' '||keyword||' '||secret_type) LIKE $%d ESCAPE '\\'`, "%"+query+"%")
 	}
+	if filter.SourceUpdatedAfter != nil {
+		add("source_updated_at >= $%d", filter.SourceUpdatedAfter.UTC())
+	}
 	return where, args
 }
 
@@ -347,13 +369,19 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string) (Finding, e
 	return finding, err
 }
 
-func (s *Store) Stats(ctx context.Context) (Stats, error) {
+func (s *Store) Stats(ctx context.Context, sourceUpdatedAfter *time.Time) (Stats, error) {
 	var stats Stats
+	where := "TRUE"
+	args := []any{}
+	if sourceUpdatedAfter != nil {
+		where = "source_updated_at >= $1"
+		args = append(args, sourceUpdatedAfter.UTC())
+	}
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*),
  COUNT(*) FILTER(WHERE status='new'),COUNT(*) FILTER(WHERE status='triaged'),
  COUNT(*) FILTER(WHERE status='false_positive'),COUNT(*) FILTER(WHERE status='resolved'),
  COUNT(*) FILTER(WHERE confidence='likely'),COUNT(*) FILTER(WHERE confidence='suspected')
- FROM github_leak_findings`).Scan(&stats.Total, &stats.New, &stats.Triaged, &stats.FalsePositive, &stats.Resolved, &stats.Likely, &stats.Suspected)
+	FROM github_leak_findings WHERE `+where, args...).Scan(&stats.Total, &stats.New, &stats.Triaged, &stats.FalsePositive, &stats.Resolved, &stats.Likely, &stats.Suspected)
 	return stats, err
 }
 
@@ -363,8 +391,8 @@ func (s *Store) KeywordState(ctx context.Context, keyword string) (KeywordState,
 		return KeywordState{}, err
 	}
 	var state KeywordState
-	err = s.db.QueryRowContext(ctx, `SELECT keyword,etag,last_attempt_at,last_success_at,last_status,last_error,incomplete,truncated FROM github_leak_keyword_state WHERE keyword=$1`, keyword).
-		Scan(&state.Keyword, &state.ETag, &state.LastAttemptAt, &state.LastSuccessAt, &state.LastStatus, &state.LastError, &state.Incomplete, &state.Truncated)
+	err = s.db.QueryRowContext(ctx, `SELECT keyword,etag,freshness_policy,freshness_checked_at,freshness_cursor,freshness_cursor_etag,last_attempt_at,last_success_at,last_status,last_error,incomplete,truncated FROM github_leak_keyword_state WHERE keyword=$1`, keyword).
+		Scan(&state.Keyword, &state.ETag, &state.FreshnessPolicy, &state.FreshnessCheckedAt, &state.FreshnessCursor, &state.FreshnessCursorETag, &state.LastAttemptAt, &state.LastSuccessAt, &state.LastStatus, &state.LastError, &state.Incomplete, &state.Truncated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return KeywordState{Keyword: keyword}, nil
 	}
@@ -376,7 +404,21 @@ func (s *Store) SaveKeywordState(ctx context.Context, state KeywordState) error 
 	if err != nil {
 		return err
 	}
+	var ok bool
 	state.LastError = safeError(state.LastError)
+	if state.ETag, ok = normalizeETag(state.ETag); !ok {
+		return errors.New("invalid GitHub ETag")
+	}
+	state.FreshnessPolicy = strings.TrimSpace(state.FreshnessPolicy)
+	if len(state.FreshnessPolicy) > 100 || hasUnsafeMetadataText(state.FreshnessPolicy) {
+		return errors.New("invalid GitHub freshness policy")
+	}
+	if state.FreshnessCursor < 0 || state.FreshnessCursor > 1000000 {
+		return errors.New("invalid GitHub freshness cursor")
+	}
+	if state.FreshnessCursorETag, ok = normalizeETag(state.FreshnessCursorETag); !ok {
+		return errors.New("invalid GitHub freshness cursor ETag")
+	}
 	incomplete := int64(0)
 	if state.Incomplete {
 		incomplete = 1
@@ -386,11 +428,11 @@ func (s *Store) SaveKeywordState(ctx context.Context, state KeywordState) error 
 		truncated = 1
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO github_leak_keyword_state
- (keyword,etag,last_attempt_at,last_success_at,last_status,last_error,incomplete,truncated,updated_at)
- VALUES($1,$2,$3,$4,$5,$6,($7::bigint <> 0),($8::bigint <> 0),CURRENT_TIMESTAMP)
- ON CONFLICT(keyword) DO UPDATE SET etag=EXCLUDED.etag,last_attempt_at=EXCLUDED.last_attempt_at,
+	(keyword,etag,freshness_policy,freshness_checked_at,freshness_cursor,freshness_cursor_etag,last_attempt_at,last_success_at,last_status,last_error,incomplete,truncated,updated_at)
+	VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,($11::bigint <> 0),($12::bigint <> 0),CURRENT_TIMESTAMP)
+	ON CONFLICT(keyword) DO UPDATE SET etag=EXCLUDED.etag,freshness_policy=EXCLUDED.freshness_policy,freshness_checked_at=EXCLUDED.freshness_checked_at,freshness_cursor=EXCLUDED.freshness_cursor,freshness_cursor_etag=EXCLUDED.freshness_cursor_etag,last_attempt_at=EXCLUDED.last_attempt_at,
 	last_success_at=EXCLUDED.last_success_at,last_status=EXCLUDED.last_status,last_error=EXCLUDED.last_error,
-	incomplete=EXCLUDED.incomplete,truncated=EXCLUDED.truncated,updated_at=CURRENT_TIMESTAMP`, keyword, strings.TrimSpace(state.ETag), state.LastAttemptAt,
+	incomplete=EXCLUDED.incomplete,truncated=EXCLUDED.truncated,updated_at=CURRENT_TIMESTAMP`, keyword, strings.TrimSpace(state.ETag), state.FreshnessPolicy, state.FreshnessCheckedAt, state.FreshnessCursor, state.FreshnessCursorETag, state.LastAttemptAt,
 		state.LastSuccessAt, strings.TrimSpace(state.LastStatus), state.LastError, incomplete, truncated)
 	return err
 }

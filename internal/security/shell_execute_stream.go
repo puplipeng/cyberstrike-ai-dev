@@ -60,8 +60,9 @@ func (s *EinoStreamingShell) ExecuteStreaming(ctx context.Context, input *filesy
 func runShellInBackground(ctx context.Context, command string, w *schema.StreamWriter[*filesystem.ExecuteResponse]) {
 	defer w.Close()
 
-	command = PrepareShellCommandForExecute(command)
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	shell := DefaultAgentShell()
+	args, _, _ := prepareShellInvocation(shell, command)
+	cmd := exec.CommandContext(ctx, shell, args...)
 	applyDefaultTerminalEnv(cmd)
 	attachNonInteractiveStdin(cmd)
 	stdout, err := cmd.StdoutPipe()
@@ -120,8 +121,9 @@ func drainShellPipes(stdout, stderr io.Reader) {
 func streamShellForeground(ctx context.Context, command string, w *schema.StreamWriter[*filesystem.ExecuteResponse]) {
 	defer w.Close()
 
-	command = PrepareShellCommandForExecute(command)
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	shell := DefaultAgentShell()
+	args, _, _ := prepareShellInvocation(shell, command)
+	cmd := exec.CommandContext(ctx, shell, args...)
 	applyDefaultTerminalEnv(cmd)
 	attachNonInteractiveStdin(cmd)
 

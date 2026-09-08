@@ -876,10 +876,7 @@ func (e *Executor) executeSystemCommand(ctx context.Context, args map[string]int
 	)
 
 	// 获取 shell 类型。Windows 默认使用 PowerShell，其余平台默认 sh。
-	shell := "sh"
-	if runtime.GOOS == "windows" {
-		shell = "powershell"
-	}
+	shell := DefaultAgentShell()
 	if s, ok := args["shell"].(string); ok && s != "" {
 		shell = s
 	}

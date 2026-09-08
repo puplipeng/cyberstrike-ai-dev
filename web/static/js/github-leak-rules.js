@@ -1,6 +1,6 @@
 /* GitHub leak rule normalization and DOM-safe settings editor. */
 const GitHubLeakRules = (() => {
-    const MAX_RULES = 32;
+    const MAX_RULES = 40;
     const MAX_TERMS = 6;
     const MAX_NAME_BYTES = 100;
     const MAX_TERM_BYTES = 200;

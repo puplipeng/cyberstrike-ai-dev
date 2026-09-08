@@ -4104,21 +4104,29 @@ function handleStreamEvent(event, progressElement, progressId,
             }, 200);
             break;
             
-        case 'error':
+        case 'error': {
             stopProgressElapsedClock(progressId);
+            const terminalErrorData = event.data || {};
+            const iterationLimitStopped = terminalErrorData.errorKind === 'iteration_limit';
+            const terminalErrorTitle = iterationLimitStopped
+                ? (typeof window.t === 'function' ? window.t('chat.iterationLimitReachedTitle') : '⏸️ 达到迭代上限')
+                : ('❌ ' + (typeof window.t === 'function' ? window.t('chat.error') : '错误'));
+            const terminalTaskStatus = iterationLimitStopped
+                ? (typeof window.t === 'function' ? window.t('chat.iterationLimitReachedTitle') : '达到迭代上限')
+                : (typeof window.t === 'function' ? window.t('tasks.statusFailed') : '执行失败');
             // 显示错误
             if (timeline) {
                 addTimelineItem(timeline, 'error', {
-                    title: '❌ ' + (typeof window.t === 'function' ? window.t('chat.error') : '错误'),
+                    title: terminalErrorTitle,
                     message: event.message,
-                    data: event.data
+                    data: terminalErrorData
                 });
             }
             
             // 更新进度标题为错误状态
             const errorTitle = document.querySelector(`#${progressId} .progress-stage`);
             if (errorTitle) {
-                errorTitle.textContent = '❌ ' + (typeof window.t === 'function' ? window.t('chat.executionFailed') : '执行失败');
+                errorTitle.textContent = terminalErrorTitle;
             }
             
             // 更新进度容器为已完成状态（添加completed类）
@@ -4129,7 +4137,7 @@ function handleStreamEvent(event, progressElement, progressId,
             
             // 完成进度任务（标记为失败）
             if (progressTaskState.has(progressId)) {
-                finalizeProgressTask(progressId, typeof window.t === 'function' ? window.t('tasks.statusFailed') : '执行失败');
+                finalizeProgressTask(progressId, terminalTaskStatus);
             }
             
             // 复用已有助手消息（若有），避免终态事件重复插入消息
@@ -4161,7 +4169,8 @@ function handleStreamEvent(event, progressElement, progressId,
             finalizeOutstandingToolCallsForProgress(progressId, 'failed');
             mainIterationStateByProgressId.delete(String(progressId));
             break;
-            
+        }
+
         case 'done':
             if (event.data && event.data.workflowStatus === 'awaiting_hitl') {
                 const waitingTitle = document.querySelector(`#${progressId} .progress-stage`);
@@ -4189,9 +4198,11 @@ function handleStreamEvent(event, progressElement, progressId,
             if (window.csTaskReplay && window.csTaskReplay.progressId === progressId) {
                 clearCsTaskReplay();
             }
-            // 完成，更新进度标题（如果进度消息还存在）
+            // `done` is a transport terminator, not proof of success. Preserve a
+            // preceding terminal error instead of repainting it as completed.
+            const hasError = timeline && timeline.querySelector('.timeline-item-error');
             const doneTitle = document.querySelector(`#${progressId} .progress-stage`);
-            if (doneTitle) {
+            if (doneTitle && !hasError) {
                 doneTitle.textContent = '✅ ' + (typeof window.t === 'function' ? window.t('chat.penetrationTestComplete') : '渗透测试完成');
             }
             // 更新对话ID
@@ -4202,12 +4213,9 @@ function handleStreamEvent(event, progressElement, progressId,
                 addAttackChainButton(currentConversationId);
                 updateProgressConversation(progressId, event.data.conversationId);
             }
-            if (progressTaskState.has(progressId)) {
+            if (progressTaskState.has(progressId) && !hasError) {
                 finalizeProgressTask(progressId, typeof window.t === 'function' ? window.t('tasks.statusCompleted') : '已完成');
             }
-            
-            // 检查时间线中是否有错误项
-            const hasError = timeline && timeline.querySelector('.timeline-item-error');
             
             // 立即刷新任务状态（确保任务状态同步）
             loadActiveTasks();

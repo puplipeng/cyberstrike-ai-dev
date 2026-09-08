@@ -403,6 +403,12 @@ func TestCodexAccountNormalizationDoesNotPersistAPIKey(t *testing.T) {
 }
 
 func TestAgentTaskBudgetEffective(t *testing.T) {
+	if DefaultAgentMaxIterations != 1000 {
+		t.Fatalf("DefaultAgentMaxIterations=%d, want 1000", DefaultAgentMaxIterations)
+	}
+	if DefaultMaxTaskTokens != 100000000 {
+		t.Fatalf("DefaultMaxTaskTokens=%d, want 100000000", DefaultMaxTaskTokens)
+	}
 	for _, tc := range []struct{ value, want int }{{0, DefaultMaxTaskTokens}, {240000, 240000}, {-1, 0}} {
 		if got := (AgentConfig{MaxTaskTokens: tc.value}).MaxTaskTokensEffective(); got != tc.want {
 			t.Fatalf("max_task_tokens=%d effective=%d want=%d", tc.value, got, tc.want)

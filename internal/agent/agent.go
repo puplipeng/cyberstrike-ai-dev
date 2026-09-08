@@ -62,9 +62,9 @@ func ConversationIDFromContext(ctx context.Context) string {
 
 // NewAgent 创建新的Agent
 func NewAgent(cfg *config.OpenAIConfig, agentCfg *config.AgentConfig, mcpServer *mcp.Server, externalMCPMgr *mcp.ExternalMCPManager, logger *zap.Logger, maxIterations int) *Agent {
-	// 如果 maxIterations 为 0 或负数，使用默认值 30
+	// 如果 maxIterations 为 0 或负数，使用统一默认值
 	if maxIterations <= 0 {
-		maxIterations = 30
+		maxIterations = config.DefaultAgentMaxIterations
 	}
 
 	// 配置HTTP Transport，优化连接管理和超时设置

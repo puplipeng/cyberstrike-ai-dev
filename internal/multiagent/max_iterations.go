@@ -4,7 +4,7 @@ import "cyberstrike-ai/internal/config"
 
 const defaultAgentMaxIterations = config.DefaultAgentMaxIterations
 
-// agentMaxIterations uses the same 30-iteration default as the configuration UI.
+// agentMaxIterations uses the same 1000-iteration default as the configuration UI.
 func agentMaxIterations(appCfg *config.Config) int {
 	if appCfg != nil && appCfg.Agent.MaxIterations > 0 {
 		return appCfg.Agent.MaxIterations

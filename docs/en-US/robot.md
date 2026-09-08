@@ -427,13 +427,13 @@ robots:
     auth:
       mode: user_binding
     client_id: "your_dingtalk_app_key"
-    client_secret: "your_dingtalk_app_secret"
+    client_secret: "<REPLACE_WITH_VALUE>"
   lark:
     enabled: true
     auth:
       mode: user_binding
     app_id: "your_lark_app_id"
-    app_secret: "your_lark_app_secret"
+    app_secret: "<REPLACE_WITH_VALUE>"
     verify_token: ""
   wecom:
     enabled: false

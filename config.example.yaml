@@ -47,9 +47,9 @@ security:
 agents_dir: agents
 roles_dir: roles
 agent:
-  max_iterations: 30
-  # Per-run cumulative input + output budget; 0=default 1M, -1=unlimited.
-  max_task_tokens: 1000000
+  max_iterations: 1000
+  # Per-run cumulative input + output budget; 0=default 100M, -1=unlimited.
+  max_task_tokens: 100000000
 # GitHub 公开代码中的疑似凭据暴露监控。Token 建议使用专用只读凭据；也可通过 GITHUB_TOKEN 注入。
 # fingerprint_key 是独立 HMAC 密钥，可通过 GITHUB_LEAK_FINGERPRINT_KEY 注入；建议使用随机的 hex:<64个十六进制字符> 并保持稳定，
 # 这样轮换 GitHub PAT 时同一泄露值仍会得到相同指纹。未配置时仅为兼容旧版才回退到 token 派生。
@@ -68,6 +68,7 @@ github_leak_monitor:
   #   - enabled: true
   #     name: example-corp-accesskey
   #     keywords: ["vendor.example", "ACCESSKEY"]
+  lookback_days: 365 # 仅保留目标路径最近提交时间在回溯窗口内的发现；范围 1-3650 天
   interval_seconds: 7200 # 每轮串行执行各启用规则，默认每 2 小时；相邻请求内部固定至少 60 秒
   request_timeout_seconds: 45
   per_page: 30

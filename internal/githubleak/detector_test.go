@@ -26,6 +26,12 @@ func syntheticGitHubToken(seed string) string {
 	return "ghp_" + seed + "7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0S1t3"
 }
 
+// syntheticStripeToken derives a public test-only value; no issued credential is stored.
+func syntheticStripeToken() string {
+	sum := sha256.Sum256([]byte("public synthetic Stripe detector fixture"))
+	return "sk_live_" + hex.EncodeToString(sum[:])
+}
+
 func candidateOfType(candidates []Candidate, kind string) (Candidate, bool) {
 	for _, candidate := range candidates {
 		if candidate.SecretType == kind {
@@ -43,8 +49,8 @@ func TestDetectorStrongRulesReturnOnlySanitizedEvidence(t *testing.T) {
 		raw  string
 	}{
 		{kind: "github_token", raw: syntheticGitHubToken("A")},
-		{kind: "stripe_live_secret", raw: "sk_live_" + "A1b2C3d4E5f6G7h8I9j0K1l2"},
-		{kind: "google_api_key", raw: "AIza" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r"},
+		{kind: "stripe_live_secret", raw: syntheticStripeToken()},
+		{kind: "google_api_key", raw: "AIzaA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r"}, // gitleaks:allow -- synthetic detector fixture, not an issued credential
 	}
 	for _, tc := range tests {
 		t.Run(tc.kind, func(t *testing.T) {
@@ -83,10 +89,10 @@ func TestDetectorPrivateKeyRequiresCompleteFooterAndSupportsEscapedEncryptedKeys
 		fragment string
 		want     int
 	}{
-		{name: "complete pem", fragment: "-----BEGIN " + "PRIVATE KEY-----\n" + body + "\n-----END PRIVATE KEY-----", want: 1},
-		{name: "encrypted pem", fragment: "-----BEGIN ENCRYPTED " + "PRIVATE KEY-----\n" + body + "\n-----END ENCRYPTED PRIVATE KEY-----", want: 1},
-		{name: "json escaped rsa pem", fragment: `{"key":"-----BEGIN RSA ` + `PRIVATE KEY-----\n` + body + `\n-----END RSA PRIVATE KEY-----"}`, want: 1},
-		{name: "missing footer", fragment: "-----BEGIN " + "PRIVATE KEY-----\n" + body, want: 0},
+		{name: "complete pem", fragment: "-----BEGIN PRIVATE KEY-----\n" + body + "\n-----END PRIVATE KEY-----", want: 1}, // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		{name: "encrypted pem", fragment: "-----BEGIN ENCRYPTED PRIVATE KEY-----\n" + body + "\n-----END ENCRYPTED PRIVATE KEY-----", want: 1},
+		{name: "json escaped rsa pem", fragment: `{"key":"-----BEGIN RSA PRIVATE KEY-----\n` + body + `\n-----END RSA PRIVATE KEY-----"}`, want: 1}, // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		{name: "missing footer", fragment: "-----BEGIN PRIVATE KEY-----\n" + body, want: 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -214,21 +220,21 @@ func TestDetectorCredentialFieldFamilies(t *testing.T) {
 	tests := []struct {
 		name, fragment, raw, kind string
 	}{
-		{name: "snake api key", fragment: `api_key="ak_live_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "ak_live_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "api_key"},
-		{name: "camel api key", fragment: `{"apiKey":"ak_prod_N8z4Kp2_Qx7Lm9R5Vc3W"}`, raw: "ak_prod_N8z4Kp2_Qx7Lm9R5Vc3W", kind: "api_key"},
-		{name: "compact api key", fragment: `apikey: ak_prod_R5v8Nc3_Wp7Kq2Lm9Xz4`, raw: "ak_prod_R5v8Nc3_Wp7Kq2Lm9Xz4", kind: "api_key"},
-		{name: "header api key", fragment: `x-api-key: "ak_prod_Z4m7Qp2_Ln9Vc5Rx8Kw3"`, raw: "ak_prod_Z4m7Qp2_Ln9Vc5Rx8Kw3", kind: "api_key"},
+		{name: "snake api key", fragment: `api_key="ak_live_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "ak_live_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "api_key"},     // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		{name: "camel api key", fragment: `{"apiKey":"ak_prod_N8z4Kp2_Qx7Lm9R5Vc3W"}`, raw: "ak_prod_N8z4Kp2_Qx7Lm9R5Vc3W", kind: "api_key"},  // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		{name: "compact api key", fragment: `apikey: ak_prod_R5v8Nc3_Wp7Kq2Lm9Xz4`, raw: "ak_prod_R5v8Nc3_Wp7Kq2Lm9Xz4", kind: "api_key"},     // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		{name: "header api key", fragment: `x-api-key: "ak_prod_Z4m7Qp2_Ln9Vc5Rx8Kw3"`, raw: "ak_prod_Z4m7Qp2_Ln9Vc5Rx8Kw3", kind: "api_key"}, // gitleaks:allow -- synthetic detector fixture, not an issued credential
 		{name: "cloud secret", fragment: `AWS_SECRET_ACCESS_KEY="p9/Qx4+Lm7_Nc2-Rt8=Vk5Za3"`, raw: "p9/Qx4+Lm7_Nc2-Rt8=Vk5Za3", kind: "cloud_secret_access_key"},
-		{name: "oauth client secret", fragment: `oauth_client_secret="cs_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "cs_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "oauth_client_secret"},
+		{name: "oauth client secret", fragment: `oauth_client_secret="cs_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "cs_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "oauth_client_secret"}, // gitleaks:allow -- synthetic detector fixture, not an issued credential
 		{name: "webhook secret", fragment: `SLACK_SIGNING_SECRET="wh_Q7v2Lm9!R4x8#Nc6$Wp3%Za"`, raw: "wh_Q7v2Lm9!R4x8#Nc6$Wp3%Za", kind: "webhook_signing_secret"},
 		{name: "access token", fragment: `ACCESS_TOKEN="tok_Q7v2Lm9!R4x8#Nc6$Wp3%Za"`, raw: "tok_Q7v2Lm9!R4x8#Nc6$Wp3%Za", kind: "auth_token"},
 		{name: "bearer variable", fragment: `BEARER_TOKEN="bt_Q7v2Lm9!R4x8#Nc6$Wp3%Za"`, raw: "bt_Q7v2Lm9!R4x8#Nc6$Wp3%Za", kind: "bearer_token"},
 		{name: "bearer header", fragment: `Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.Q7v2Lm9R4x8N.c6Wp3Za5Kd2F`, raw: "eyJhbGciOiJIUzI1NiJ9.Q7v2Lm9R4x8N.c6Wp3Za5Kd2F", kind: "bearer_token"},
 		{name: "qianfan sk", fragment: `QIANFAN_SK="QFs_Q7v2Lm9R4x8Nc6Wp3Za"`, raw: "QFs_Q7v2Lm9R4x8Nc6Wp3Za", kind: "llm_secret_key"},
-		{name: "oauth consumer secret", fragment: `CONSUMER_SECRET="cs_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "cs_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "oauth_client_secret"},
-		{name: "jwt secret", fragment: `JWT_SECRET="jwt_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "jwt_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "generic_secret_assignment"},
-		{name: "generic secret key", fragment: `SECRET_KEY="sec_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "sec_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "generic_secret_assignment"},
-		{name: "github named token", fragment: `GITHUB_TOKEN="tok_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "tok_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "auth_token"},
+		{name: "oauth consumer secret", fragment: `CONSUMER_SECRET="cs_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "cs_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "oauth_client_secret"}, // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		{name: "jwt secret", fragment: `JWT_SECRET="jwt_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "jwt_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "generic_secret_assignment"},         // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		{name: "generic secret key", fragment: `SECRET_KEY="sec_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "sec_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "generic_secret_assignment"}, // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		{name: "github named token", fragment: `GITHUB_TOKEN="tok_Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "tok_Q7v2Lm9_R4x8Nc6Wp3Za", kind: "auth_token"},              // gitleaks:allow -- synthetic detector fixture, not an issued credential
 		{name: "redis password", fragment: `REDIS_PASSWORD="pw!Q7v2Lm9_R4x8Nc6Wp3Za"`, raw: "pw!Q7v2Lm9_R4x8Nc6Wp3Za", kind: "generic_secret_assignment"},
 	}
 	for _, tc := range tests {
@@ -272,9 +278,9 @@ func TestDetectorRejectsMetadataPlaceholdersAndClientIDOnly(t *testing.T) {
 	negatives := []string{
 		`token password api_key`,
 		`token_endpoint=https://auth.example.com/token`,
-		`password_policy=Q7v2Lm9_R4x8Nc6Wp3Za`,
+		`password_policy=Q7v2Lm9_R4x8Nc6Wp3Za`, // gitleaks:allow -- synthetic detector fixture, not an issued credential
 		`secret_name=Q7v2Lm9_R4x8Nc6Wp3Za`,
-		`api_key_ref=Q7v2Lm9_R4x8Nc6Wp3Za`,
+		`api_key_ref=Q7v2Lm9_R4x8Nc6Wp3Za`, // gitleaks:allow -- synthetic detector fixture, not an issued credential
 		`OPENAI_API_KEY=sk-your-api-key-here`,
 		`OPENAI_API_KEY=${OPENAI_API_KEY}`,
 		`OPENAI_API_KEY=$OPENAI_API_KEY`,
@@ -290,12 +296,12 @@ func TestDetectorRejectsMetadataPlaceholdersAndClientIDOnly(t *testing.T) {
 		"client_secret:\nordinary_value=Q7v2Lm9_R4x8Nc6Wp3Za",
 		`client_secret="unterminated_Q7v2Lm9_R4x8Nc6Wp3Za`,
 		`client_id=mt_8F3kL7pQ2xV9nR5c`,
-		`AWS_ACCESS_KEY_ID=AKIA` + `IOSFODNN7EXAMPLE`,
-		`AWS_ACCESS_KEY_ID=AKIA` + `Q1W2E3R4T5Y6U7I8`,
+		`AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE`,
+		`AWS_ACCESS_KEY_ID=AKIAQ1W2E3R4T5Y6U7I8`,
 		`QIANFAN_AK=QF7mP2xN9cR4vK8z`,
-		`TWILIO_API_KEY=SK` + `0123456789abcdef0123456789abcdef`,
-		`SK` + `0123456789abcdef0123456789abcdef`,
-		`token=ghp_` + `AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`,
+		`TWILIO_API_KEY=SK` + strings.Repeat("0123456789abcdef", 2), // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		`SK` + strings.Repeat("0123456789abcdef", 2),                // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		`token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`,
 	}
 	for _, fragment := range negatives {
 		if got := detector.Detect("negative", SearchItem{Repository: "owner/repo", Path: "fixture.txt", BlobSHA: strings.Repeat("c", 40), HTMLURL: "https://github.com/owner/repo/blob/main/fixture.txt", Fragments: []string{fragment}}); len(got) != 0 {
@@ -303,16 +309,90 @@ func TestDetectorRejectsMetadataPlaceholdersAndClientIDOnly(t *testing.T) {
 		}
 	}
 
-	fragment := `client_id=mt_8F3kL7pQ2xV9nR5c client_secret="cs_Q7v2Lm9_R4x8Nc6Wp3Za"`
+	fragment := `client_id=mt_8F3kL7pQ2xV9nR5c client_secret="cs_Q7v2Lm9_R4x8Nc6Wp3Za"` // gitleaks:allow -- synthetic detector fixture, not an issued credential
 	got := detector.Detect("oauth", SearchItem{Repository: "owner/repo", Path: "oauth.env", BlobSHA: strings.Repeat("d", 40), HTMLURL: "https://github.com/owner/repo/blob/main/oauth.env", Fragments: []string{fragment}})
 	if len(got) != 1 || got[0].SecretType != "oauth_client_secret" {
 		t.Fatalf("client id + secret produced %+v; want only oauth_client_secret", got)
 	}
 
-	fragment = `AWS_ACCESS_KEY_ID=AKIA` + `Q1W2E3R4T5Y6U7I8 AWS_SECRET_ACCESS_KEY="p9/Qx4+Lm7_Nc2-Rt8=Vk5Za3"`
+	fragment = `AWS_ACCESS_KEY_ID=AKIAQ1W2E3R4T5Y6U7I8 AWS_SECRET_ACCESS_KEY="p9/Qx4+Lm7_Nc2-Rt8=Vk5Za3"`
 	got = detector.Detect("aws-pair", SearchItem{Repository: "owner/repo", Path: "aws.env", BlobSHA: strings.Repeat("e", 40), HTMLURL: "https://github.com/owner/repo/blob/main/aws.env", Fragments: []string{fragment}})
 	if len(got) != 1 || got[0].SecretType != "cloud_secret_access_key" {
 		t.Fatalf("AWS identifier + secret produced %+v; want only cloud_secret_access_key", got)
+	}
+}
+
+func TestDetectorRejectsEmptyPlaceholderAndReferenceAPIKeyValues(t *testing.T) {
+	detector := testDetector(t, "unit-test-fingerprint-key-32-bytes", "")
+	negatives := []string{
+		`api_key=`,
+		`api_key=""`,
+		`api_key='   '`,
+		`api_key=null`,
+		`api_key=undefined`,
+		`api_key="YOUR API KEY HERE"`,
+		`api_key=TEST_API_KEY_123456789`, // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		`api_key=FAKE_API_KEY_123456789`,
+		`api_key=REDACTED_API_KEY_VALUE`,
+		`api_key=MASKED_API_KEY_VALUE`,
+		`api_key=INSERT_API_KEY_HERE`,
+		`api_key=api-key-goes-here`,
+		`api_key=__PRODUCTION_API_KEY__`,
+		`api_key=PRODUCTION_API_KEY`,
+		`api_key=getenv("OPENAI_API_KEY")`,
+		`api_key=get_env("OPENAI_API_KEY")`,
+		`api_key=ENV["OPENAI_API_KEY"]`,
+		`api_key=ENV.fetch("OPENAI_API_KEY")`,
+		`api_key=Deno.env.get("OPENAI_API_KEY")`,
+		`api_key=Bun.env.OPENAI_API_KEY`,
+		`api_key=import.meta.env.OPENAI_API_KEY`,
+		`api_key=std::env::var("OPENAI_API_KEY")`,
+		`api_key=System.getProperty("service.api.key")`,
+		`api_key=configuration["OPENAI_API_KEY"]`,
+		`api_key=.Values.openai.apiKey`,
+		`api_key=loadConfig().openaiApiKey`,
+		`api_key=flag.String("api-key", "", "OpenAI credential")`,
+		`api_key=parser.add_argument("--api-key", default="")`,
+		`api_key=getSecret("openai")`,
+		`api_key=readFile("/run/secrets/openai")`,
+		`api_key=data.aws_secretsmanager_secret_version.openai.secret_string`,
+		`api_key=/run/secrets/openai_api_key`,
+		`api_key=file:///run/secrets/api-key`,
+		`api_key="<%= ENV.fetch('OPENAI_API_KEY') %>"`,
+		`api_key=*openai_api_key_secret`,
+		`api_key="0123456789abcdef"`, // gitleaks:allow -- synthetic detector fixture, not an issued credential
+	}
+	for _, fragment := range negatives {
+		t.Run(fragment, func(t *testing.T) {
+			got := detector.Detect("api-key-negative", SearchItem{
+				Repository: "owner/repo", Path: "config.txt", BlobSHA: strings.Repeat("f", 40),
+				HTMLURL: "https://github.com/owner/repo/blob/main/config.txt", Fragments: []string{fragment},
+			})
+			if len(got) != 0 {
+				t.Fatalf("placeholder/reference %q produced candidates: %+v", fragment, got)
+			}
+		})
+	}
+}
+
+func TestDetectorPlaceholderFilteringKeepsOpaqueAPIKeys(t *testing.T) {
+	detector := testDetector(t, "unit-test-fingerprint-key-32-bytes", "")
+	positives := []string{
+		`api_key="ak_live_Q7v2Lm9_R4x8Nc6Wp3Za"`,     // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		`api_key="aB3dE5fG7hJ9kL2mN4pQ6rS8tV0xY1zC"`, // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		`api_key="secret_live_Ab9xQ7v2Lm9R4Nc6"`,     // gitleaks:allow -- synthetic detector fixture, not an issued credential
+		`api_key="Ab9/7Kp2_Qx4-Zm8+Rt6"`,
+	}
+	for _, fragment := range positives {
+		t.Run(fragment, func(t *testing.T) {
+			got := detector.Detect("api-key-positive", SearchItem{
+				Repository: "owner/repo", Path: "config.txt", BlobSHA: strings.Repeat("e", 40),
+				HTMLURL: "https://github.com/owner/repo/blob/main/config.txt", Fragments: []string{fragment},
+			})
+			if len(got) != 1 || got[0].SecretType != "api_key" {
+				t.Fatalf("opaque API key %q produced %+v", fragment, got)
+			}
+		})
 	}
 }
 

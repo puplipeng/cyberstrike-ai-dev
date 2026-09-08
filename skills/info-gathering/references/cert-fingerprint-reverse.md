@@ -66,7 +66,7 @@ Censys 的证书搜索接口，需要 API Key（免费 250 queries/月）。
 ```bash
 curl -s -X POST "https://search.censys.io/api/v2/certificates/search" \
   -H "Accept: application/json" \
-  -u "API_ID:API_SECRET" \
+  -u "${CENSYS_API_ID}:${CENSYS_API_SECRET}" \
   -d '{"q":"fingerprint_sha256:8D623652AD5A53D1FCEA5D0A35CF2F605C8C74422AC6AB110570FDA9858A0BE0"}'
 ```
 

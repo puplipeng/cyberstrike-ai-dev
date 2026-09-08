@@ -72,6 +72,7 @@ type BatchTask struct {
 
 // BatchTaskQueue 批量任务队列
 type BatchTaskQueue struct {
+	AIChannelID           string       `json:"aiChannelId"`
 	ID                    string       `json:"id"`
 	Title                 string       `json:"title,omitempty"`
 	Role                  string       `json:"role,omitempty"` // 角色名称（空字符串表示默认角色）
@@ -249,6 +250,7 @@ func (m *BatchTaskManager) CreateBatchQueue(
 	concurrency int,
 	hitl *HITLRequest,
 	tasks []string,
+	channelIDs ...string,
 ) (*BatchTaskQueue, error) {
 	// 输入校验
 	if utf8.RuneCountInString(title) > MaxBatchQueueTitleLen {
@@ -265,7 +267,12 @@ func (m *BatchTaskManager) CreateBatchQueue(
 	defer m.mu.Unlock()
 
 	queueID := time.Now().Format("20060102150405") + "-" + generateShortID()
+	channelID := ""
+	if len(channelIDs) > 0 {
+		channelID = strings.TrimSpace(channelIDs[0])
+	}
 	queue := &BatchTaskQueue{
+		AIChannelID:     channelID,
 		ID:              queueID,
 		Title:           title,
 		Role:            role,
@@ -321,8 +328,10 @@ func (m *BatchTaskManager) CreateBatchQueue(
 			queue.Concurrency,
 			encodeBatchQueueHITL(queue.HITL),
 			dbTasks,
+			queue.AIChannelID,
 		); err != nil {
 			m.logger.Warn("batch queue DB create failed", zap.String("queueId", queueID), zap.Error(err))
+			return nil, fmt.Errorf("保存批量队列失败: %w", err)
 		}
 	}
 
@@ -378,6 +387,7 @@ func (m *BatchTaskManager) loadQueueFromDB(queueID string) *BatchTaskQueue {
 		CurrentIndex: queueRow.CurrentIndex,
 		Tasks:        make([]*BatchTask, 0, len(taskRows)),
 		HITL:         decodeBatchQueueHITL(queueRow.HITLConfig.String),
+		AIChannelID:  queueRow.AIChannelID.String,
 	}
 
 	if queueRow.Title.Valid {
@@ -623,6 +633,7 @@ func (m *BatchTaskManager) LoadFromDB() error {
 			CurrentIndex: queueRow.CurrentIndex,
 			Tasks:        make([]*BatchTask, 0, len(taskRows)),
 			HITL:         decodeBatchQueueHITL(queueRow.HITLConfig.String),
+			AIChannelID:  queueRow.AIChannelID.String,
 		}
 
 		if queueRow.Title.Valid {
@@ -811,7 +822,7 @@ func batchQueueConcurrencyFromRow(row *database.BatchTaskQueueRow) int {
 }
 
 // UpdateQueueMetadata 更新队列标题、角色、代理模式和并发数（非 running 时可用）
-func (m *BatchTaskManager) UpdateQueueMetadata(queueID, title, role, agentMode string, concurrency *int) error {
+func (m *BatchTaskManager) UpdateQueueMetadata(queueID, title, role, agentMode string, concurrency *int, channelIDs ...string) error {
 	if utf8.RuneCountInString(title) > MaxBatchQueueTitleLen {
 		return fmt.Errorf("标题不能超过 %d 个字符", MaxBatchQueueTitleLen)
 	}
@@ -827,6 +838,14 @@ func (m *BatchTaskManager) UpdateQueueMetadata(queueID, title, role, agentMode s
 	}
 	if queue.Status == BatchQueueStatusRunning {
 		return fmt.Errorf("队列正在运行中，无法修改")
+	}
+	if _, active := m.queueExecutors[queueID]; active {
+		return fmt.Errorf("队列执行器仍在收尾，请稍后修改")
+	}
+	updated := *queue
+	queue = &updated
+	if len(channelIDs) > 0 {
+		queue.AIChannelID = strings.TrimSpace(channelIDs[0])
 	}
 
 	// 如果未传 agentMode，保留原值
@@ -844,10 +863,12 @@ func (m *BatchTaskManager) UpdateQueueMetadata(queueID, title, role, agentMode s
 	}
 
 	if m.db != nil {
-		if err := m.db.UpdateBatchQueueMetadata(queueID, title, role, agentMode, queue.Concurrency); err != nil {
+		if err := m.db.UpdateBatchQueueMetadata(queueID, title, role, agentMode, queue.Concurrency, queue.AIChannelID); err != nil {
 			m.logger.Warn("batch queue DB metadata update failed", zap.String("queueId", queueID), zap.Error(err))
+			return fmt.Errorf("保存队列设置失败: %w", err)
 		}
 	}
+	m.queues[queueID] = queue
 	return nil
 }
 

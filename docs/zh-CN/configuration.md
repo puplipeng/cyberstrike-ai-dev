@@ -85,7 +85,8 @@ ai:
 
 ```yaml
 agent:
-  max_iterations: 12000
+  max_iterations: 1000
+  max_task_tokens: 100000000
   tool_timeout_minutes: 60
   shell_no_output_timeout_seconds: 1200
   workspace_root_dir: ""
@@ -93,6 +94,7 @@ agent:
 ```
 
 - `max_iterations`：单代理、多代理主执行器和子代理的默认迭代上限。
+- `max_task_tokens`：单次任务累计 Token 预算；0 使用默认 1 亿，-1 不限制。
 - `tool_timeout_minutes`：单次工具最长运行时间。
 - `shell_no_output_timeout_seconds`：Shell 长时间无输出时终止。
 - `workspace_root_dir`：会话工作区根目录，建议不要设置到系统 `/tmp`。

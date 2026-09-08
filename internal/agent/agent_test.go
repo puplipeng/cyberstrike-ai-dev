@@ -46,8 +46,8 @@ func TestAgent_NewAgent_DefaultValues(t *testing.T) {
 	// 测试默认配置
 	agent := NewAgent(openAICfg, nil, mcpServer, nil, logger, 0)
 
-	if agent.maxIterations != 30 {
-		t.Errorf("默认迭代次数不匹配。期望: 30, 实际: %d", agent.maxIterations)
+	if agent.maxIterations != config.DefaultAgentMaxIterations {
+		t.Errorf("默认迭代次数不匹配。期望: %d, 实际: %d", config.DefaultAgentMaxIterations, agent.maxIterations)
 	}
 }
 

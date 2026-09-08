@@ -302,6 +302,7 @@ type GitHubLeakMonitorPublic struct {
 	IntervalSeconds          int                           `json:"interval_seconds"`
 	RequestTimeoutSeconds    int                           `json:"request_timeout_seconds"`
 	PerPage                  int                           `json:"per_page"`
+	LookbackDays             int                           `json:"lookback_days"`
 }
 
 // ToolConfigInfo 工具配置信息
@@ -419,6 +420,7 @@ func (h *ConfigHandler) GetConfig(c *gin.Context) {
 			IntervalSeconds:          h.config.GitHubLeakMonitor.IntervalSecondsEffective(),
 			RequestTimeoutSeconds:    h.config.GitHubLeakMonitor.RequestTimeoutSecondsEffective(),
 			PerPage:                  h.config.GitHubLeakMonitor.PerPageEffective(),
+			LookbackDays:             h.config.GitHubLeakMonitor.LookbackDaysEffective(),
 		},
 		MCP:        h.config.MCP,
 		Tools:      tools,
@@ -803,6 +805,12 @@ func normalizeGitHubLeakMonitorConfig(in config.GitHubLeakMonitorConfig) (config
 	if in.PerPage < 1 || in.PerPage > 100 {
 		return in, fmt.Errorf("github_leak_monitor.per_page 必须在 1 到 100 之间")
 	}
+	if in.LookbackDays == 0 {
+		in.LookbackDays = config.DefaultGitHubLeakLookbackDays
+	}
+	if in.LookbackDays < config.MinGitHubLeakLookbackDays || in.LookbackDays > config.MaxGitHubLeakLookbackDays {
+		return in, fmt.Errorf("github_leak_monitor.lookback_days 必须在 %d 到 %d 天之间", config.MinGitHubLeakLookbackDays, config.MaxGitHubLeakLookbackDays)
+	}
 	var legacyQuery string
 	if len(in.Rules) == 0 {
 		legacyKeywords, query, err := normalizeGitHubLeakKeywords(in.Keywords)
@@ -1003,7 +1011,7 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 	if req.Agent != nil && req.Agent.MaxTaskTokens != nil && *req.Agent.MaxTaskTokens < -1 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "max_task_tokens 必须为正数、0（默认100万）或 -1（不限）"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "max_task_tokens 必须为正数、0（默认1亿）或 -1（不限）"})
 		return
 	}
 	if req.GitHubLeakMonitor != nil {
@@ -2401,6 +2409,7 @@ func updateGitHubLeakMonitorConfig(doc *yaml.Node, cfg config.GitHubLeakMonitorC
 	setIntInMap(node, "interval_seconds", cfg.IntervalSecondsEffective())
 	setIntInMap(node, "request_timeout_seconds", cfg.RequestTimeoutSecondsEffective())
 	setIntInMap(node, "per_page", cfg.PerPageEffective())
+	setIntInMap(node, "lookback_days", cfg.LookbackDaysEffective())
 }
 
 func setGitHubLeakRulesInMap(mapNode *yaml.Node, key string, rules []config.GitHubLeakRuleConfig) {

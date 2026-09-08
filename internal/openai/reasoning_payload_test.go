@@ -251,6 +251,119 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+func TestNormalizeHistoricalToolArguments(t *testing.T) {
+	for _, tc := range []struct {
+		name, args, want string
+	}{
+		{"missing", "", `{}`},
+		{"null", `,"arguments":null`, `{}`},
+		{"empty", `,"arguments":""`, `{}`},
+		{"blank", `,"arguments":" \n "`, `{}`},
+		{"encoded null", `,"arguments":"null"`, `{}`},
+		{"object wire input", `,"arguments":{"id":9007199254740993}`, `{"id":9007199254740993}`},
+		{"valid object", `,"arguments":"{\"id\":9007199254740993}"`, `{"id":9007199254740993}`},
+		{"array", `,"arguments":"[]"`, `{"_invalid_tool_arguments":"[]"}`},
+		{"malformed", `,"arguments":"{broken"`, `{"_invalid_tool_arguments":"{broken"}`},
+		{"scalar", `,"arguments":"false"`, `{"_invalid_tool_arguments":"false"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := `{"name":"diagnostic_noop"` + tc.args + `}`
+			out, _ := normalizeHistoricalFunctionArguments(json.RawMessage(in))
+			var function struct {
+				Arguments string `json:"arguments"`
+			}
+			if err := json.Unmarshal(out, &function); err != nil {
+				t.Fatal(err)
+			}
+			if function.Arguments != tc.want {
+				t.Fatalf("got %q, want %q", function.Arguments, tc.want)
+			}
+			if again, changed := normalizeHistoricalFunctionArguments(out); changed || string(again) != string(out) {
+				t.Fatal("normalization must be idempotent")
+			}
+		})
+	}
+}
+
+func TestEinoHTTPClientRepairsFailedToolHistory(t *testing.T) {
+	// Mirrors the failed conversation: omitted arguments, followed by a tool
+	// error. The gateway must receive a mapping-compatible string without losing
+	// that failure or changing the tool definition/model options.
+	body := `{"model":"test-model","stream":true,"tools":[{"type":"function","function":{"name":"diagnostic_noop","parameters":{"type":"object","properties":{}}}}],"messages":[{"role":"assistant","content":"keep text","tool_calls":[{"id":"call_1","type":"function","function":{"name":"diagnostic_noop"}}]},{"role":"tool","tool_call_id":"call_1","content":"[Tool Error] missing arguments"}]}`
+	var sent map[string]json.RawMessage
+	client := NewEinoHTTPClient(nil, &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		b, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if req.ContentLength != int64(len(b)) {
+			t.Fatal("stale ContentLength")
+		}
+		replay, err := req.GetBody()
+		if err != nil {
+			t.Fatal(err)
+		}
+		replayBody, err := io.ReadAll(replay)
+		_ = replay.Close()
+		if err != nil || string(replayBody) != string(b) {
+			t.Fatal("replay body differs")
+		}
+		if err := json.Unmarshal(b, &sent); err != nil {
+			t.Fatal(err)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})})
+	req, _ := http.NewRequest(http.MethodPost, "https://example.invalid/v1/chat/completions", strings.NewReader(body))
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	var original map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(body), &original)
+	for _, key := range []string{"model", "stream", "tools"} {
+		if !reflect.DeepEqual(sent[key], original[key]) {
+			t.Fatalf("changed %s", key)
+		}
+	}
+	var messages []map[string]json.RawMessage
+	_ = json.Unmarshal(sent["messages"], &messages)
+	var before []map[string]json.RawMessage
+	_ = json.Unmarshal(original["messages"], &before)
+	if !reflect.DeepEqual(messages[1], before[1]) {
+		t.Fatal("tool failure result changed")
+	}
+	if !reflect.DeepEqual(messages[0]["content"], before[0]["content"]) {
+		t.Fatal("assistant text changed")
+	}
+	var calls []struct {
+		Function struct {
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	}
+	_ = json.Unmarshal(messages[0]["tool_calls"], &calls)
+	if len(calls) != 1 || calls[0].Function.Arguments != "{}" {
+		t.Fatal("missing argument object")
+	}
+}
+
+func TestNormalizeToolArgumentsLeavesValidAndUnrelatedPayloadsUnchanged(t *testing.T) {
+	for _, input := range []string{
+		`invalid json`, `null`, `[]`, `{}`, `{"messages":null}`,
+		`{"messages":[null,{"role":"user","content":"do not rewrite","tool_calls":[{"function":{"name":"test"}}]}]}`,
+		`{"messages":[{"role":"assistant","tool_calls":[null,{"function":null}]}]}`,
+		`{"messages":[{"role":"assistant","tool_calls":[{"function":{"name":"test","arguments":"{ \"id\": 9007199254740993 }"}}]}]}`,
+	} {
+		if output := normalizeChatCompletionToolArguments([]byte(input)); string(output) != input {
+			t.Fatalf("unexpected rewrite: %s", output)
+		}
+	}
+	legacy := normalizeChatCompletionToolArguments([]byte(`{"messages":[{"role":"assistant","function_call":{"name":"test"}}]}`))
+	if !strings.Contains(string(legacy), `"arguments":"{}"`) {
+		t.Fatal("legacy function_call not normalized")
+	}
+}
+
 func TestNormalizeChatCompletionOutputLimits(t *testing.T) {
 	for _, tc := range []struct {
 		name string

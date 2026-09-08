@@ -123,7 +123,7 @@ test('task budget and token optimization switches survive edit/save without trea
     elements['eino-tool-search-enable'].checked = false;
     assert.equal(ctx.readTokenOptimizationSettings().tool_search_enable, false);
     elements['agent-max-task-tokens'].value = '0';
-    assert.equal(ctx.readTaskTokenBudget(), 1000000);
+    assert.equal(ctx.readTaskTokenBudget(), 100000000);
     elements['agent-max-task-tokens'].value = '250000';
     assert.equal(ctx.readTaskTokenBudget(), 250000);
     for (const invalid of ['-2', '1.5', 'not-a-number']) {
