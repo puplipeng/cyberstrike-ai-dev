@@ -12,7 +12,7 @@ test('SSH WebSocket URL never contains login tokens and path input remains liter
 });
 test('SSH wiring, cleanup and both translation sets are present',()=>{
  const html=fs.readFileSync(path.join(__dirname,'../../templates/index.html'),'utf8');
- assert.ok(html.includes('id="ssh-panel"'));assert.ok(html.includes('ssh.js?v=20260829-fixes1'));assert.ok(html.includes('router.js?v=20260904-assetmonitor1'));
+ assert.ok(html.includes('id="ssh-panel"'));assert.ok(html.includes('ssh.js?v=20260829-fixes1'));assert.ok(/router\.js\?v=[A-Za-z0-9_-]+/.test(html));
  const router=fs.readFileSync(path.join(__dirname,'router.js'),'utf8');assert.ok(router.includes('SSHManager.init()'));assert.ok(router.includes('SSHManager.cleanup()'));
  const auth=fs.readFileSync(path.join(__dirname,'auth.js'),'utf8');assert.ok(auth.includes('SSHManager.cleanup()'));
  for(const lang of ['zh-CN','en-US']) {

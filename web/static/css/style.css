@@ -43023,13 +43023,28 @@ html[data-theme="dark"] .workflow-toolbar #workflow-connect-btn[aria-pressed="tr
 .asset-batch-menu .asset-batch-menu-danger:hover:not(:disabled),.asset-batch-menu .asset-batch-menu-danger:focus-visible { background: rgba(220,38,38,.08); }
 .asset-batch-permission-action { display: contents; }
 .asset-list-meta { margin-left: auto; }
+.asset-priority { display: inline-block; margin-top: 5px; padding: 2px 7px; border-radius: 5px; font-size: 11px; white-space: nowrap; color: var(--text-secondary); border: 1px solid var(--border-color); }
+.asset-priority--P1 { color: #9a3412; background: #ffedd5; border-color: #fdba74; }
+.asset-priority--P2 { color: #1e40af; background: #dbeafe; border-color: #93c5fd; }
+.asset-priority--P3, .asset-priority--P4 { color: var(--text-secondary); background: var(--bg-secondary); }
+.asset-priority-advanced-group { display:inline-flex; flex:0 0 auto; gap:8px; align-items:center; }
+.asset-priority-advanced-group #asset-priority-filter { min-width:145px; }
+.asset-toolbar-main > #asset-search { min-width:180px; }
+.asset-inventory-map button { padding:5px 9px; border:1px solid var(--border-color); border-radius:6px; color:var(--text-primary); background:var(--card-bg); cursor:pointer; }
+.asset-inventory-map summary { cursor:pointer; padding:5px 0; color:var(--text-primary); }
+#asset-inventory-map-body { max-height:340px; overflow:auto; }
+#asset-inventory-map-body p { font-size:12px; color:var(--text-secondary); }
+#asset-inventory-map-body table { width:100%; border-collapse:collapse; font-size:12px; }
+#asset-inventory-map-body td, #asset-inventory-map-body th { text-align:left; padding:8px; border-bottom:1px solid var(--border-color); }
+#asset-inventory-map-body td:nth-child(2) { max-width:300px; overflow-wrap:anywhere; }
+.asset-priority-advanced-group select:focus-visible, .asset-inventory-map summary:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
 .asset-list-card { overflow: hidden; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; background: var(--card-bg, #fff); box-shadow: 0 1px 3px rgba(15,23,42,.03); }
 #page-asset-library .asset-list-card { overflow: hidden; }
 #page-asset-library .asset-list-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .asset-table-wrap { overflow: auto; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; background: var(--card-bg, #fff); }
 .asset-list-card .asset-table-wrap { border: 0; border-radius: 0; }
-#page-asset-library .asset-list-card .asset-table-wrap { --table-scroll-header-height: 41px; --asset-table-header-bg: var(--card-bg, #fff); flex: 1 1 auto; min-height: 0; overflow: hidden; scrollbar-gutter: auto; }
-#page-asset-library .asset-table { display: flex; height: 100%; flex-direction: column; }
+#page-asset-library .asset-list-card .asset-table-wrap { --table-scroll-header-height: 41px; --asset-table-header-bg: var(--card-bg, #fff); flex: 1 1 auto; min-height: 0; overflow-x: auto; overflow-y: hidden; scrollbar-gutter: auto; }
+#page-asset-library .asset-table { display: flex; height: 100%; min-width: 1400px; flex-direction: column; }
 #page-asset-library .asset-table thead { display: block; flex: 0 0 auto; }
 #page-asset-library .asset-table tbody { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-muted, #94a3b8) 52%, transparent) transparent; }
 #page-asset-library .asset-table tr { display: table; width: 100%; table-layout: fixed; }

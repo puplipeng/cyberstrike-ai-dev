@@ -43,7 +43,7 @@ test('rule limits match the backend boundaries', () => {
 
 test('validation rejects empty rows, duplicate names and duplicate canonical queries', () => {
     const validation = rules.validateRules([
-        { name: 'Example-Corp', enabled: true, keywords: ['vendor.example', 'clientid'] },
+        { name: 'Example-corp', enabled: true, keywords: ['vendor.example', 'clientid'] },
         { name: 'example-corp', enabled: false, keywords: ['clientid', 'vendor.example'] },
         { name: 'empty', enabled: false, keywords: [] },
     ]);
@@ -113,4 +113,117 @@ test('settings page loads, validates and saves the GitHub leak lookback window',
     assert.match(settings, /const githubLeakLookbackDays = Number\(githubLeakLookbackDaysEl\?\.value \|\| '365'\)/);
     assert.match(settings, /githubLeakLookbackDays < 1 \|\| githubLeakLookbackDays > 3650/);
     assert.match(settings, /lookback_days:\s*githubLeakLookbackDays/);
+});
+
+// Minimal DOM fixture for editor behavior; real layout is verified in the browser.
+function editorFixture() {
+    const doc = { activeElement: null };
+    class Node {
+        constructor(tag) {
+            this.tagName = tag; this.ownerDocument = doc; this.children = [];
+            this.dataset = {}; this.attributes = {}; this.listeners = {};
+            this.className = ''; this.hidden = false; this.value = ''; this.checked = false;
+            this.classList = {
+                toggle: (name, enabled) => {
+                    const classes = new Set(this.className.split(' ').filter(Boolean));
+                    enabled ? classes.add(name) : classes.delete(name);
+                    this.className = [...classes].join(' ');
+                },
+                add: name => this.classList.toggle(name, true),
+                remove: name => this.classList.toggle(name, false),
+            };
+        }
+        append(...nodes) { nodes.forEach(node => this.appendChild(node)); }
+        appendChild(node) {
+            if (node.tagName === 'fragment') { [...node.children].forEach(child => this.appendChild(child)); return; }
+            if (node.parentNode) node.parentNode.children = node.parentNode.children.filter(child => child !== node);
+            node.parentNode = this; this.children.push(node);
+        }
+        replaceChildren(...nodes) { this.children.forEach(n => { n.parentNode = null; }); this.children = []; this.append(...nodes); }
+        setAttribute(name, value) { this.attributes[name] = value; }
+        addEventListener(name, listener) { (this.listeners[name] ||= []).push(listener); }
+        fire(name, target = this, extra = {}) { (this.listeners[name] || []).forEach(fn => fn({target, preventDefault() {}, ...extra})); }
+        focus() { doc.activeElement = this; }
+        matches(selector) {
+            return selector.split(',').some(part => {
+                part = part.trim();
+                const data = part.match(/^\[data-([^=\]]+)(?:="([^"]+)")?\]$/);
+                if (data) {
+                    const key = data[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+                    return data[2] === undefined ? key in this.dataset : this.dataset[key] === data[2];
+                }
+                const [tag, cls] = part.split('.');
+                return (!tag || this.tagName === tag) && (!cls || this.className.split(' ').includes(cls));
+            });
+        }
+        querySelectorAll(selector) { return this.children.flatMap(n => [...(n.matches(selector) ? [n] : []), ...n.querySelectorAll(selector)]); }
+        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+        closest(selector) { return this.matches(selector) ? this : this.parentNode?.closest(selector); }
+    }
+    doc.createElement = tag => new Node(tag);
+    doc.createDocumentFragment = () => new Node('fragment');
+    const container = new Node('div'); container.id = 'test-rules';
+    const addButton = new Node('button'); const toggleMount = new Node('div');
+    const errorOutput = new Node('output');
+    const editor = rules.createEditor({container, addButton, toggleMount, errorOutput});
+    return {doc, container, addButton, toggle: toggleMount.querySelector('button'), count: toggleMount.querySelector('.ghl-settings-rules-count'), editor};
+}
+
+test('rule disclosure starts collapsed, preserves hidden form values and updates enabled counts', () => {
+    const f = editorFixture();
+    f.editor.load({rules: [{name: 'sample', enabled: true, keywords: ['example.com']}]});
+    assert.equal(f.container.hidden, true);
+    assert.equal(f.toggle.attributes['aria-expanded'], 'false');
+    assert.equal(f.toggle.attributes['aria-controls'], 'test-rules');
+    assert.equal(f.count.textContent, '1 条 · 1 条启用');
+    f.toggle.fire('click');
+    f.container.querySelector('[data-ghl-rule-name]').value = 'edited';
+    const enabled = f.container.querySelector('[data-ghl-rule-enabled]'); enabled.checked = false;
+    f.container.fire('change', enabled);
+    f.toggle.fire('click');
+    assert.equal(f.container.hidden, true);
+    assert.deepEqual(f.editor.read().rules, [{name: 'edited', enabled: false, keywords: ['example.com']}]);
+    assert.equal(f.container.hidden, true, 'valid hidden rules need not be expanded during save');
+    assert.equal(f.count.textContent, '1 条 · 0 条启用');
+});
+
+test('adding and invalid save reveal rules, Escape closes without losing input', () => {
+    const f = editorFixture();
+    f.addButton.fire('click');
+    assert.equal(f.container.hidden, false);
+    assert.equal(f.doc.activeElement, f.container.querySelector('[data-ghl-rule-name]'));
+    f.container.fire('keydown', f.doc.activeElement, {key: 'Escape'});
+    assert.equal(f.container.querySelector('[data-ghl-rule-card]').open, false);
+    assert.equal(f.doc.activeElement, f.container.querySelector('summary'));
+    f.container.fire('keydown', f.doc.activeElement, {key: 'Escape'});
+    assert.equal(f.container.hidden, true);
+    assert.equal(f.doc.activeElement, f.toggle);
+    assert.equal(f.editor.read().valid, false);
+    assert.equal(f.container.hidden, false);
+    assert.equal(f.container.querySelector('[data-ghl-rule-card]').open, true);
+    assert.equal(f.doc.activeElement, f.container.querySelector('[data-ghl-rule-name]'));
+    f.container.fire('click', f.container.querySelector('[data-ghl-rule-remove]'));
+    assert.equal(f.editor.count(), 0);
+    assert.equal(f.count.textContent, '0 条 · 0 条启用');
+});
+
+test('individual rules are folded with useful summaries and keep edits through add/remove', () => {
+    const f = editorFixture();
+    f.editor.load({rules: [
+        {name: 'first', enabled: true, keywords: ['example.com', 'clientid']},
+        {name: 'second', enabled: false, keywords: ['other.example']},
+    ]});
+    const cards = () => f.container.querySelectorAll('[data-ghl-rule-card]');
+    assert.ok(cards().every(card => card.tagName === 'details' && !card.open));
+    assert.equal(cards()[0].querySelector('.ghl-settings-rule-number').textContent, '规则 1 · first');
+    assert.equal(cards()[1].querySelector('.ghl-settings-rule-summary-state').textContent, '已停用 · 1 个词');
+    cards()[0].open = true;
+    const input = cards()[0].querySelector('[data-ghl-rule-name]');
+    input.value = 'edited'; f.container.fire('input', input);
+    assert.equal(cards()[0].querySelector('.ghl-settings-rule-number').textContent, '规则 1 · edited');
+    f.editor.add({name:'third', enabled:true, keywords:['third.example']});
+    assert.deepEqual(cards().map(card => card.open), [true, false, true]);
+    f.container.fire('click', cards()[1].querySelector('[data-ghl-rule-remove]'));
+    assert.deepEqual(cards().map(card => card.open), [true, true]);
+    assert.deepEqual(f.editor.read().rules.map(rule => rule.name), ['edited', 'third']);
 });

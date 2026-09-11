@@ -110,7 +110,7 @@ function initRouter() {
         const hashParts = hash.split('?');
         let pageId = hashParts[0];
         if (pageId === 'c2') pageId = 'c2-listeners';
-        if (pageId && ['dashboard', 'chat', 'hitl', 'asset-overview', 'asset-library', 'asset-monitor', 'info-collect', 'projects', 'vulnerabilities', 'vulnerability-intel', 'github-leaks', 'webshell', 'chat-files', 'mcp-monitor', 'mcp-management', 'knowledge-management', 'knowledge-retrieval-logs', 'roles-management', 'platform-rbac', 'workflows', 'skills-monitor', 'skills-management', 'skill-library', 'agents-management', 'settings', 'tasks', 'c2-listeners', 'c2-sessions', 'c2-tasks', 'c2-payloads', 'c2-events', 'c2-profiles'].includes(pageId)) {
+        if (pageId && ['dashboard', 'chat', 'hitl', 'asset-overview', 'asset-library', 'apk-audit', 'asset-monitor', 'info-collect', 'projects', 'vulnerabilities', 'vulnerability-intel', 'github-leaks', 'webshell', 'chat-files', 'mcp-monitor', 'mcp-management', 'knowledge-management', 'knowledge-retrieval-logs', 'roles-management', 'platform-rbac', 'workflows', 'skills-monitor', 'skills-management', 'skill-library', 'agents-management', 'settings', 'tasks', 'c2-listeners', 'c2-sessions', 'c2-tasks', 'c2-payloads', 'c2-events', 'c2-profiles'].includes(pageId)) {
             switchPage(pageId);
             if (pageId === 'chat') {
                 scheduleChatConversationFromHash(0);
@@ -450,6 +450,9 @@ async function initPage(pageId) {
         case 'asset-overview':
             if (typeof loadAssetOverview === 'function') loadAssetOverview();
             break;
+        case 'apk-audit':
+            if (window.APKAudit) window.APKAudit.init();
+            break;
         case 'asset-library':
             if (typeof loadAssets === 'function') loadAssets();
             break;
@@ -628,6 +631,7 @@ async function initPage(pageId) {
             break;
     }
     
+    if (pageId !== 'apk-audit' && window.APKAudit) window.APKAudit.cleanup();
     // 清理其他页面的定时器
     if (pageId !== 'webshell' && window.SSHManager) window.SSHManager.cleanup();
     if (pageId !== 'tasks' && typeof cleanupTasksPage === 'function') {
@@ -649,7 +653,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let pageId = hashParts[0];
         
         if (pageId === 'c2') pageId = 'c2-listeners';
-        if (pageId && ['dashboard', 'chat', 'hitl', 'asset-overview', 'asset-library', 'asset-monitor', 'info-collect', 'projects', 'tasks', 'workflows', 'vulnerabilities', 'webshell', 'chat-files', 'mcp-monitor', 'mcp-management', 'knowledge-management', 'knowledge-retrieval-logs', 'roles-management', 'platform-rbac', 'skills-monitor', 'skills-management', 'skill-library', 'agents-management', 'settings', 'c2-listeners', 'c2-sessions', 'c2-tasks', 'c2-payloads', 'c2-events', 'c2-profiles'].includes(pageId)) {
+        if (pageId && ['dashboard', 'chat', 'hitl', 'asset-overview', 'asset-library', 'apk-audit', 'asset-monitor', 'info-collect', 'projects', 'tasks', 'workflows', 'vulnerabilities', 'webshell', 'chat-files', 'mcp-monitor', 'mcp-management', 'knowledge-management', 'knowledge-retrieval-logs', 'roles-management', 'platform-rbac', 'skills-monitor', 'skills-management', 'skill-library', 'agents-management', 'settings', 'c2-listeners', 'c2-sessions', 'c2-tasks', 'c2-payloads', 'c2-events', 'c2-profiles'].includes(pageId)) {
             switchPage(pageId);
             if (pageId === 'chat') {
                 scheduleChatConversationFromHash(0);

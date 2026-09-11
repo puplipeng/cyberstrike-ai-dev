@@ -1,3 +1,5 @@
+param([switch]$ManagedChild, [switch]$NoBrowser)
+
 $ErrorActionPreference = 'Stop'
 
 function Test-IsAdministrator {
@@ -23,9 +25,46 @@ if (-not (Test-IsAdministrator)) {
         $hostExe = (Get-Process -Id $PID -ErrorAction Stop).Path
         $escapedScript = $PSCommandPath.Replace('"', '""')
         $argumentLine = '-NoProfile -ExecutionPolicy Bypass -File "' + $escapedScript + '"'
+        if ($ManagedChild) { $argumentLine += ' -ManagedChild' }
+        if ($NoBrowser) { $argumentLine += ' -NoBrowser' }
         Start-Process -FilePath $hostExe -ArgumentList $argumentLine -Verb RunAs -WindowStyle Hidden | Out-Null
     } catch {
         Show-LaunchError ('Administrator approval is required to start the local SSH vault and services.' + [Environment]::NewLine + $_.Exception.Message)
+        exit 1
+    }
+    exit
+}
+
+# Let Windows own the service lifetime, not a temporary deployment terminal.
+# This task has no triggers: it starts only from this launcher and never resumes scans.
+if (-not $ManagedChild) {
+    try {
+        $managedTaskName = 'CyberStrikeAI-Local-Services'
+        $managedPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $managedArguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -ManagedChild -NoBrowser'
+        $managedExisting = Get-ScheduledTask -TaskName $managedTaskName -ErrorAction SilentlyContinue
+        if ($managedExisting) {
+            if ($managedExisting.Actions.Count -ne 1 -or $managedExisting.Actions[0].Execute -ine $managedPowerShell -or $managedExisting.Actions[0].Arguments -cne $managedArguments) {
+                throw 'The managed task name is already used by a different command. No task was overwritten.'
+            }
+        } else {
+            $managedAction = New-ScheduledTaskAction -Execute $managedPowerShell -Argument $managedArguments
+            $managedPrincipal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Highest
+            $managedSettings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+            Register-ScheduledTask -TaskName $managedTaskName -Action $managedAction -Principal $managedPrincipal -Settings $managedSettings -Description 'On-demand local CyberStrikeAI service host. No schedule or automatic scan resume.' | Out-Null
+        }
+        Start-ScheduledTask -TaskName $managedTaskName
+        $managedReady = $false
+        for ($managedAttempt=0; $managedAttempt -lt 60; $managedAttempt++) {
+            try {
+                if ((Invoke-WebRequest -Uri 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { $managedReady = $true; break }
+            } catch { }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $managedReady) { throw 'Managed startup did not become ready. Inspect work\logs\desktop-launcher.log.' }
+        if (-not $NoBrowser) { Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList 'http://127.0.0.1:8080/' | Out-Null }
+    } catch {
+        Show-LaunchError $_.Exception.Message
         exit 1
     }
     exit
@@ -268,7 +307,13 @@ try {
             throw "CyberStrikeAI process $($orphanServers[0].Id) exists without a healthy listener. Stop it before retrying."
         }
 
-        $serverEnvironment = @{ CYBERSTRIKE_CODEX_WORKDIR = $codexWorkdir }
+        $serverEnvironment = @{
+            CYBERSTRIKE_CODEX_WORKDIR = $codexWorkdir
+            CYBERSTRIKE_APK_DATA = (Join-Path $workRoot 'apk-audit-data')
+            CYBERSTRIKE_APK_PYTHON = (Join-Path $workRoot 'apk-engine\venv\Scripts\python.exe')
+            CYBERSTRIKE_APK_WORKER = (Join-Path $repoRoot 'scripts\apk_audit\worker.py')
+            CYBERSTRIKE_ASC_ROOT = (Join-Path $workRoot 'apk-engine\ASC')
+        }
         $codexExe = Find-CodexExecutable
         if ($codexExe) { $serverEnvironment['CYBERSTRIKE_CODEX_BIN'] = $codexExe }
         $previousEnvironment = Set-ProcessEnvironment $serverEnvironment
@@ -314,7 +359,7 @@ try {
     }
 
     Add-Content -LiteralPath $launcherLog -Encoding UTF8 -Value ("[{0}] Startup completed: {1}" -f (Get-Date).ToString('o'), $appURL)
-    Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList $appURL | Out-Null
+    if (-not $NoBrowser) { Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList $appURL | Out-Null }
 } catch {
     $message = $_.Exception.Message
     try {
@@ -330,3 +375,10 @@ try {
     $launchMutex.Dispose()
 }
 if ($launchExitCode -ne 0) { exit $launchExitCode }
+
+# Release the startup mutex before waiting. Stopping the platform ends this host;
+# there is intentionally no restart loop or automatic resumption of user tasks.
+if ($ManagedChild) {
+    $managedOwner = @(Get-ListenerOwners 8080 | Where-Object { $_.Path -ieq $serverExe })
+    if ($managedOwner.Count -eq 1) { Wait-Process -Id $managedOwner[0].Id -ErrorAction SilentlyContinue }
+}

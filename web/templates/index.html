@@ -31,7 +31,7 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260904-src6kskill1">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260909-assetpriority2">
     <link rel="stylesheet" href="/static/css/chat-plan-progress.css?v=20260813-4">
     <link rel="stylesheet" href="/static/css/c2.css">
     <link rel="stylesheet" href="/static/vendor/xterm.css">
@@ -40,7 +40,8 @@
     <link rel="stylesheet" href="/static/css/github-leaks.css?v=20260902-compact1">
     <link rel="stylesheet" href="/static/css/asset-monitor.css?v=20260904-1">
     <link rel="stylesheet" href="/static/css/skill-library.css?v=3">
-    <script src="/static/js/router.js?v=20260904-assetmonitor1"></script>
+    <script src="/static/js/router.js?v=20260910-apk1"></script>
+<link rel="stylesheet" href="/static/css/apk-audit.css?v=20260910-apk2">
 </head>
 <body>
     <div id="login-overlay" class="login-overlay" style="display: flex;">
@@ -290,6 +291,16 @@
                                 <rect x="13" y="13" width="8" height="8" rx="2"/>
                             </svg>
                             <span data-i18n="nav.workflows">工作流</span>
+                        </div>
+                    </div>
+                    <div class="nav-item" data-page="apk-audit" data-require-permission="apk:read">
+                        <div class="nav-item-content" data-title="反编译与代码审计" onclick="switchPage('apk-audit')">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <polyline points="8 7 3 12 8 17"></polyline>
+                                <polyline points="16 7 21 12 16 17"></polyline>
+                                <line x1="14" y1="4" x2="10" y2="20"></line>
+                            </svg>
+                            <span>反编译与代码审计</span>
                         </div>
                     </div>
                     <div class="nav-item" data-page="webshell">
@@ -1872,6 +1883,7 @@
                     <div id="asset-monitor-content" class="page-content"></div>
                 </div>
 
+                <div id="page-apk-audit" class="page"><div class="page-header"><h2>反编译与代码审计</h2></div><div id="apk-audit-root" class="page-content"></div></div>
                 <!-- 资产库页面 -->
                 <div id="page-asset-library" class="page asset-page">
                     <div class="page-header">
@@ -1888,7 +1900,16 @@
                                 <input id="asset-search" type="search" data-i18n="assets.searchPlaceholder" data-i18n-attr="placeholder" placeholder="搜索主机、IP、域名、标题、服务、责任人或标签" onkeydown="if(event.key==='Enter')loadAssets(1)">
                                 <select id="asset-status-filter" onchange="loadAssets(1)"><option value="" data-i18n="assets.allStatuses">全部状态</option><option value="active" data-i18n="assets.statusActive">活跃</option><option value="inactive" data-i18n="assets.statusInactive">停用</option></select>
                                 <select id="asset-project-filter" onchange="loadAssets(1)"><option value="" data-i18n="assets.allProjects">全部项目</option></select>
-                                <button class="btn-secondary" type="button" onclick="toggleAssetAdvancedFilters()" aria-expanded="false" id="asset-advanced-toggle" data-i18n="assets.advancedFilters">高级筛选</button>
+                                <div id="asset-priority-controls" class="asset-priority-advanced-group">
+                                    <select id="asset-priority-filter" aria-label="评估优先级" onchange="setAssetPriorityFilter(this.value)" title="评估顺序，不是漏洞严重性；选择优先级会替换标签筛选，其他筛选保持不变。">
+                                        <option value="">优先级：全部</option>
+                                        <option value="P1">P1 优先评估</option>
+                                        <option value="P2">P2 常规评估</option>
+                                        <option value="P3">P3 低收益候选</option>
+                                        <option value="P4">P4 后置评估</option>
+                                    </select>
+                                    <button class="btn-secondary" type="button" onclick="toggleAssetAdvancedFilters()" aria-expanded="false" id="asset-advanced-toggle" data-i18n="assets.advancedFilters">高级筛选</button>
+                                </div>
                                 <button class="btn-primary" type="button" onclick="loadAssets(1)" data-i18n="common.search">搜索</button>
                                 <button class="btn-link" type="button" onclick="resetAssetFilters()" data-i18n="assets.resetFilters">重置</button>
                                 <span id="asset-list-meta" class="muted"></span>
@@ -6862,12 +6883,12 @@
     <script src="/static/js/i18n.js?v=20260830-dismiss1"></script>
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/builtin-tools.js"></script>
-    <script src="/static/js/auth.js?v=20260904-assetmonitor1"></script>
+    <script src="/static/js/auth.js?v=20260910-apk1"></script>
     <script src="/static/js/modal.js"></script>
     <script src="/static/js/ui-dialog.js"></script>
     <script src="/static/js/notifications.js?v=20260830-dismiss1"></script>
     <script src="/static/js/info-collect.js?v=20260830-dismiss1"></script>
-    <script src="/static/js/assets.js?v=20260904-src6kskill1&amp;channels=20260906"></script>
+    <script src="/static/js/assets.js?v=20260909-assetpriority2"></script>
     <script src="/static/js/agents.js"></script>
     <script src="/static/js/dashboard.js?v=20260829-1"></script>
     <script src="/static/js/chat-scroll.js?v=20260830-pageview1"></script>
@@ -6903,5 +6924,6 @@
     <script src="/static/js/authenticated-events.js?v=20260829-security1"></script>
     <script src="/static/js/c2.js?v=20260829-security1"></script>
     <script src="/static/js/rbac-guards.js?v=20260904-assetmonitor1"></script>
+<script src="/static/js/apk-audit.js?v=20260910-apk2"></script>
 </body>
 </html>

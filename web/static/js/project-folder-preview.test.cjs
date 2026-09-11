@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const vm = require('node:vm');
 
 const projects = fs.readFileSync('web/static/js/projects.js', 'utf8');
 const styles = fs.readFileSync('web/static/css/style.css', 'utf8');
@@ -23,6 +24,67 @@ function cssBlock(source, selector) {
     assert.ok(match, `${selector} style block should exist`);
     return match[0];
 }
+
+test('项目名称不等待慢速状态接口，失败时保留已显示的项目', async () => {
+    const source = projects.slice(projects.indexOf('async function refreshChatProjectFolders('), projects.indexOf('\nfunction handleProjectFolderSearch('));
+    let rejectStatus;
+    const status = new Promise((_resolve, reject) => { rejectStatus = reject; });
+    const rendered = [], notices = [];
+    const list = { innerHTML: '' };
+    const context = vm.createContext({
+        document: { getElementById: () => list }, chatProjectFolderRenderSeq: 0,
+        isProjectsCacheReady: () => false,
+        appendChatProjectPanelMessage: (_list, _kind, text) => notices.push(text),
+        pickerMessage: (_t, _key, fallback) => fallback, tp: () => '',
+        loadChatProjectFolderContext: () => status,
+        ensureProjectsLoaded: async () => [{ id: 'p1', name: 'Project' }],
+        renderChatProjectFolders: (items) => rendered.push(items),
+    });
+    vm.runInContext(source, context);
+    const pending = context.refreshChatProjectFolders();
+    await new Promise(setImmediate);
+    assert.equal(rendered.length, 1, 'projects should render while status remains pending');
+    rejectStatus(new Error('status unavailable'));
+    await pending;
+    assert.equal(rendered[0][0].id, 'p1');
+    assert.match(notices.at(-1), /项目已加载/);
+});
+
+test('并发项目状态刷新复用请求，完成后可重新加载', async () => {
+    const source = projects.slice(projects.indexOf('function loadChatProjectFolderContext('), projects.indexOf('\nasync function fetchChatProjectFolderContext('));
+    let finish, calls = 0;
+    const context = vm.createContext({
+        chatProjectFolderContextPromise: null,
+        fetchChatProjectFolderContext: () => { calls++; return new Promise(resolve => { finish = resolve; }); },
+    });
+    vm.runInContext(source, context);
+    const first = context.loadChatProjectFolderContext();
+    assert.equal(context.loadChatProjectFolderContext(), first);
+    assert.equal(calls, 1);
+    finish(true); await first;
+    const next = context.loadChatProjectFolderContext();
+    assert.equal(calls, 2);
+    finish(true); await next;
+});
+
+test('项目刷新较旧响应不会覆盖更新后的列表', async () => {
+    const source = projects.slice(projects.indexOf('async function refreshChatProjectFolders('), projects.indexOf('\nfunction handleProjectFolderSearch('));
+    let finishFirst; const firstList = new Promise(resolve => { finishFirst = resolve; });
+    const rendered = []; let calls = 0;
+    const context = vm.createContext({
+        document: { getElementById: () => ({ innerHTML: '' }) }, chatProjectFolderRenderSeq: 0,
+        isProjectsCacheReady: () => true, appendChatProjectPanelMessage: () => {},
+        pickerMessage: () => '', tp: () => '', loadChatProjectFolderContext: async () => true,
+        ensureProjectsLoaded: () => ++calls === 1 ? firstList : Promise.resolve([{ id: 'new' }]),
+        renderChatProjectFolders: items => rendered.push(items[0].id),
+    });
+    vm.runInContext(source, context);
+    const first = context.refreshChatProjectFolders();
+    await context.refreshChatProjectFolders();
+    finishFirst([{ id: 'old' }]); await first;
+    assert.ok(rendered.length > 0);
+    assert.ok(rendered.every(id => id === 'new'));
+});
 
 test('无项目文件夹与普通项目共用悬浮和键盘聚焦预览', () => {
     const source = functionSource(projects, 'appendChatProjectFolderItem', 'appendChatProjectConversationItem');

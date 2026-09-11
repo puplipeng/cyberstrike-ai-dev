@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"cyberstrike-ai/internal/findingpolicy"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -299,7 +300,7 @@ func (a *Agent) EinoSingleAgentSystemInstruction() string {
 			}
 		}
 	}
-	return systemPrompt
+	return findingpolicy.AppendPrompt(systemPrompt)
 }
 
 // getAvailableTools 获取可用工具

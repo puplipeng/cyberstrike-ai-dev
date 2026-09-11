@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"cyberstrike-ai/internal/agent"
+	"cyberstrike-ai/internal/apkaudit"
 	"cyberstrike-ai/internal/assetmonitor"
 	"cyberstrike-ai/internal/audit"
 	"cyberstrike-ai/internal/authctx"
@@ -1095,6 +1096,30 @@ func setupRoutes(
 			})
 		}
 	}))
+
+	apkManager, apkErr := apkaudit.New(apkaudit.Config{
+		Root: os.Getenv("CYBERSTRIKE_APK_DATA"), Python: os.Getenv("CYBERSTRIKE_APK_PYTHON"),
+		Worker: os.Getenv("CYBERSTRIKE_APK_WORKER"), ASCRoot: os.Getenv("CYBERSTRIKE_ASC_ROOT"),
+	}, func(c *gin.Context) string {
+		session, ok := security.CurrentSession(c)
+		if !ok {
+			return ""
+		}
+		return session.UserID
+	})
+	if apkErr != nil {
+		if app != nil && app.logger != nil {
+			app.logger.Logger.Warn("APK audit disabled: initialization failed", zap.Error(apkErr))
+		}
+		apkManager, _ = apkaudit.New(apkaudit.Config{}, func(c *gin.Context) string {
+			session, ok := security.CurrentSession(c)
+			if !ok {
+				return ""
+			}
+			return session.UserID
+		})
+	}
+	apkManager.Register(protected.Group("/apk-audit"))
 	{
 		protected.GET("/rbac/me", rbacHandler.Me)
 		protected.GET("/rbac/metadata", rbacHandler.Metadata)

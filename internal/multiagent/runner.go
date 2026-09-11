@@ -3,6 +3,7 @@ package multiagent
 
 import (
 	"context"
+	"cyberstrike-ai/internal/findingpolicy"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -252,7 +253,7 @@ func RunDeepAgent(
 				middlewareConfig:     &ma.EinoMiddleware,
 			})
 
-			subInstrFinal := project.AppendVisionImageAnalysisIfReady(instr, appCfg.Vision.Ready())
+			subInstrFinal := project.AppendVisionImageAnalysisIfReady(findingpolicy.AppendPrompt(instr), appCfg.Vision.Ready())
 			subInstrFinal = injectToolNamesOnlyInstruction(ctx, subInstrFinal, subTools, subToolSearchActive)
 			if logger != nil {
 				subNames := collectToolNames(ctx, subTools)
@@ -333,7 +334,7 @@ func RunDeepAgent(
 		return nil, err
 	}
 
-	orchInstruction = project.AppendSystemPromptBlock(orchInstruction, systemPromptExtra)
+	orchInstruction = findingpolicy.AppendPrompt(project.AppendSystemPromptBlock(orchInstruction, systemPromptExtra))
 	orchInstruction = project.AppendVisionImageAnalysisIfReady(orchInstruction, appCfg.Vision.Ready())
 	orchInstruction = injectToolNamesOnlyInstruction(ctx, orchInstruction, mainTools, mainToolSearchActive)
 	if logger != nil {

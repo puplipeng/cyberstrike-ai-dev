@@ -2,6 +2,7 @@ package multiagent
 
 import (
 	"context"
+	"cyberstrike-ai/internal/findingpolicy"
 	"fmt"
 	"sync"
 
@@ -155,7 +156,7 @@ func RunEinoSingleChatModelAgent(
 		},
 		EmitInternalEvents: true,
 	}
-	ins := project.AppendSystemPromptBlock(ag.EinoSingleAgentSystemInstruction(), systemPromptExtra)
+	ins := findingpolicy.AppendPrompt(project.AppendSystemPromptBlock(ag.EinoSingleAgentSystemInstruction(), systemPromptExtra))
 	ins = project.AppendVisionImageAnalysisIfReady(ins, appCfg.Vision.Ready())
 	ins = injectToolNamesOnlyInstruction(ctx, ins, mainTools, singleToolSearchActive)
 	if logger != nil {

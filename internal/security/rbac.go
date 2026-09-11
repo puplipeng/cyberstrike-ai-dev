@@ -13,6 +13,8 @@ import (
 // Platform permissions use module:action naming. They are intentionally
 // separate from AI testing roles under roles/.
 var PermissionCatalog = map[string]string{
+	"apk:read":             "View own APK analysis cases",
+	"apk:write":            "Upload APKs and run offline analysis",
 	"auth:self":            "Manage own session and password",
 	"dashboard:read":       "View dashboard summaries",
 	"chat:read":            "View conversations",

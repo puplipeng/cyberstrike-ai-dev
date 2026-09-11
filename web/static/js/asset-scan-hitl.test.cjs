@@ -105,9 +105,9 @@ test('单次扫描先持久化审批配置再发送，批量扫描随队列保�
     assert.match(batchSource, /hitl: normalizeAssetScanHITLConfig\(hitlConfig\)/);
     assert.match(chatSendSource, /confirmedAssetScanHITL/);
     assert.match(chatSendSource, /enabled: hitlMode !== HITL_MODE_OFF/);
-    assert.match(html, /assets\.js\?v=20260904-src6kskill1/);
+    assert.match(html, /assets\.js\?v=20260909-assetpriority2/);
     assert.match(html, /chat\.js\?v=20260903-iterlimit1/);
-    assert.match(html, /style\.css\?v=20260904-src6kskill1/);
+    assert.match(html, /style\.css\?v=20260909-assetpriority2/);
 });
 
 test('扫描通道优先使用用户选择，保存的队列通道优先于当前聊天选择', async () => {

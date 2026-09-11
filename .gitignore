@@ -104,3 +104,9 @@ ssh-vault/
 /nuclei_results.txt
 
 .audit/
+
+# APK audit runtime and imported binaries
+apk-audit-data/
+apk-engine/
+*.apk
+audit-source-*.jsonl

@@ -14,7 +14,7 @@ function functionSource(name, nextName) {
     const end = source.indexOf(`function ${nextName}(`, start);
     assert.notEqual(start, -1, `${name} should exist`);
     assert.notEqual(end, -1, `${nextName} should follow ${name}`);
-    return source.slice(start, end).trim();
+    return source.slice(start, end).replace(/async\s*$/, '').trim();
 }
 
 const externalURL = vm.runInNewContext(`(${functionSource('assetExternalURL', 'assetExternalLinkMarkup')})`, { URL });
@@ -25,6 +25,75 @@ test('assetExternalURL preserves safe absolute HTTP URLs', () => {
         'https://example.com/a/b?x=1#result'
     );
     assert.equal(externalURL({ host: 'http://example.com:8080/login' }), 'http://example.com:8080/login');
+});
+
+test('priority is distinct from severity and conflicting tags are not silently accepted', () => {
+    const present = vm.runInNewContext(`(${functionSource('assetPriorityPresentation', 'assetPriorityMarkup')})`);
+    assert.equal(present({ tags: ['优先级:P1', '分级依据:测试业务候选'], risk_level: 'normal' }).tier, 'P1');
+    assert.equal(present({ tags: ['优先级:P4'], risk_level: 'critical' }).tier, 'P4');
+    assert.equal(present({ tags: ['优先级:P1', '优先级:P4'] }).label, '分级冲突');
+    assert.equal(present({ tags: [] }).label, '未分级');
+});
+
+test('priority quick filter uses server filtering and clears cross-page selection', () => {
+    const input = { value: '' }; let cleared = 0; let page;
+    const filter = vm.runInNewContext(`(${functionSource('setAssetPriorityFilter', 'syncAssetPriorityButtons')})`, {
+        document: { getElementById: () => input }, clearAssetSelection: () => cleared++,
+        syncAssetPriorityButtons: () => {}, loadAssets: p => { page = p; }
+    });
+    filter('P1'); assert.equal(input.value, '优先级:P1'); assert.equal(page, 1); assert.equal(cleared, 1);
+    filter('P5'); assert.equal(cleared, 1);
+    filter(''); assert.equal(input.value, ''); assert.equal(cleared, 2);
+});
+
+test('priority dropdown follows saved tag filters and reset without triggering a request', () => {
+    const input = { value: '优先级:P3' }, select = { value: '' };
+    const sync = vm.runInNewContext(`(${functionSource('syncAssetPriorityButtons', 'ensureAssetPriorityControls')})`, {
+        document: { getElementById: id => id === 'asset-tag-filter' ? input : select }
+    });
+    sync(); assert.equal(select.value, 'P3');
+    input.value = ''; sync(); assert.equal(select.value, '');
+    input.value = '公网'; sync(); assert.equal(select.value, '');
+    input.value = '优先级:P1'; sync(); assert.equal(select.value, 'P1');
+});
+
+test('priority reason markup escapes untrusted labels', () => {
+    const escape = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const markup = vm.runInNewContext(`(${functionSource('assetPriorityMarkup', 'setAssetPriorityFilter')})`, {
+        assetPriorityPresentation: () => ({ tier: 'P1', label: '<img src=x>', reason: '\"><script>alert(1)</script>' }),
+        assetEscapeAttr: escape, escapeHtml: escape
+    })({});
+    assert.doesNotMatch(markup, /<script|<img/); assert.match(markup, /&lt;script/);
+});
+
+test('priority is server rendered directly before advanced filters', () => {
+    assert.equal((html.match(/id="asset-priority-filter"/g) || []).length, 1);
+    const group = html.match(/<div id="asset-priority-controls"[\s\S]*?<\/div>/)[0];
+    assert.match(group, /<select id="asset-priority-filter"[\s\S]*?<\/select>\s*<button[^>]*id="asset-advanced-toggle"/);
+    assert.match(group, /onchange="setAssetPriorityFilter\(this.value\)"/);
+    for (const tier of ['P1', 'P2', 'P3', 'P4']) assert.ok(group.includes(`value="${tier}"`));
+});
+
+test('initialization keeps server-rendered priority and creates the map only once', () => {
+    const elements = new Map();
+    const element = () => ({ children: [], append(...children) {
+        this.children.push(...children);
+        for (const child of children) if (child.id) elements.set(child.id, child);
+    }, addEventListener() {} });
+    const toolbar = element();
+    const controls = element();
+    elements.set('asset-priority-controls', controls);
+    elements.set('asset-advanced-toggle', { parentNode: controls });
+    let synced = 0;
+    const ensure = vm.runInNewContext(`(${functionSource('ensureAssetPriorityControls', 'loadAssetInventoryMap')})`, {
+        document: { getElementById: id => elements.get(id), querySelector: () => toolbar, createElement: element },
+        syncAssetPriorityButtons: () => synced++
+    });
+    ensure(); ensure();
+    assert.equal(elements.get('asset-priority-controls'), controls);
+    assert.equal(toolbar.children.length, 1);
+    assert.equal(toolbar.children[0].id, 'asset-inventory-map');
+    assert.ok(synced >= 2);
 });
 
 test('assetExternalURL builds web URLs from protocol, host, IP, and port', () => {
@@ -98,6 +167,6 @@ test('asset list and detail keep their existing behavior and add one-click exter
 test('asset external-link translations and cache busting are wired', () => {
     assert.equal(zh.assets.openExternal, '打开外链');
     assert.equal(en.assets.openExternal, 'Open link');
-    assert.match(html, /\/static\/js\/assets\.js\?v=20260904-src6kskill1/);
-    assert.match(html, /\/static\/css\/style\.css\?v=20260904-src6kskill1/);
+    assert.match(html, /\/static\/js\/assets\.js\?v=20260909-assetpriority2/);
+    assert.match(html, /\/static\/css\/style\.css\?v=20260909-assetpriority2/);
 });

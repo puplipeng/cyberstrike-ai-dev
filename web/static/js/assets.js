@@ -678,6 +678,7 @@ async function deleteCurrentAssetView() {
 }
 
 async function loadAssets(page) {
+    ensureAssetPriorityControls();
     // 无显式页码表示进入资产库或点击顶部“刷新”，此时同步项目筛选项。
     // 翻页、搜索等带页码的操作继续复用缓存，避免重复请求项目列表。
     await ensureAssetProjects(page == null);
@@ -703,6 +704,7 @@ async function loadAssets(page) {
             return loadAssets(assetPageState.totalPages);
         }
         renderAssetRows();
+        syncAssetPriorityButtons();
         updateAssetSelectionUI();
         renderAssetPagination();
         const meta = document.getElementById('asset-list-meta');
@@ -863,7 +865,7 @@ function renderAssetRows() {
         const statusLabel = asset.status === 'inactive' ? assetT('assets.statusInactive', '停用') : assetT('assets.statusActive', '活跃');
         return `<tr>
             <td class="asset-check-cell"><input type="checkbox" class="theme-checkbox" ${assetPageState.selected.has(asset.id) ? 'checked' : ''} onchange="toggleAssetSelection(${index},this.checked)" aria-label="${escapeHtml(assetT('assets.selectAsset', '选择资产'))}"></td>
-            <td><div class="asset-target-cell"><button class="asset-target-link" title="${escapeHtml(targetHint)}" onclick="openAssetDetail(${index})">${escapeHtml(assetTargetLabel(asset))}</button>${externalLink}</div></td>
+            <td><div class="asset-target-cell"><button class="asset-target-link" title="${escapeHtml(targetHint)}" onclick="openAssetDetail(${index})">${escapeHtml(assetTargetLabel(asset))}</button>${externalLink}</div>${assetPriorityMarkup(asset)}</td>
             <td><span class="asset-service" title="${escapeHtml(service)}">${escapeHtml(service)}</span></td>
             <td>${asset.project_name ? `<span class="asset-project-badge">${escapeHtml(asset.project_name)}</span>` : '<span class="muted">-</span>'}</td>
             <td>${assetOwnershipMarkup(asset)}</td>
@@ -1920,6 +1922,7 @@ function openAssetDetailRecord(asset) {
         assetDetailItem(assetT('assets.businessSystem', '业务系统'), escapeHtml(asset.business_system || '')),
         assetDetailItem(assetT('assets.environment', '环境'), escapeHtml(asset.environment || '')),
         assetDetailItem(assetT('assets.criticality', '重要性'), escapeHtml(asset.criticality || '')),
+        assetDetailItem('评估优先级（非漏洞等级）', assetPriorityMarkup(asset) + ' ' + escapeHtml(assetPriorityPresentation(asset).reason), true),
         assetDetailItem(assetT('assets.source', '来源'), escapeHtml(asset.source || '')),
         assetDetailItem(assetT('assets.sourceQuery', '来源查询'), asset.source_query ? `<code>${escapeHtml(asset.source_query)}</code>` : '', true, { className: 'asset-detail-item--code' }),
         assetDetailItem(assetT('assets.tagsLabel', '标签'), tags, true),
@@ -1938,6 +1941,125 @@ function openAssetDetailRecord(asset) {
 function closeAssetDetail() {
     if (typeof closeAppModal === 'function') closeAppModal('asset-detail-modal');
     else document.getElementById('asset-detail-modal').style.display = 'none';
+}
+
+// Assessment priority is a curated tag, deliberately separate from risk_level
+// and criticality. Server-side tag filtering keeps pagination/selection honest.
+function assetPriorityPresentation(asset) {
+    const tags = Array.isArray(asset?.tags) ? asset.tags : [];
+    const tiers = [...new Set(tags.filter(t => /^优先级:P[1-4]$/.test(t)).map(t => t.slice(-2)))];
+    if (tiers.length !== 1) return { tier: '', label: tiers.length ? '分级冲突' : '未分级', reason: '需要重新评估' };
+    const tier = tiers[0];
+    const labels = { P1: 'P1 优先评估', P2: 'P2 常规评估', P3: 'P3 低收益候选', P4: 'P4 后置评估' };
+    const reason = tags.find(t => t.startsWith('分级依据:'))?.slice(5) || '人工分级';
+    return { tier, label: labels[tier], reason };
+}
+
+function assetPriorityMarkup(asset) {
+    const p = assetPriorityPresentation(asset);
+    return `<span class="asset-priority asset-priority--${p.tier || 'unknown'}" title="${assetEscapeAttr(p.reason + '；评估顺序，不是漏洞严重性')}">${escapeHtml(p.label)}</span>`;
+}
+
+function setAssetPriorityFilter(tier) {
+    const input = document.getElementById('asset-tag-filter');
+    if (!input || !['', 'P1', 'P2', 'P3', 'P4'].includes(tier)) return;
+    input.value = tier ? '优先级:' + tier : '';
+    clearAssetSelection();
+    syncAssetPriorityButtons();
+    loadAssets(1);
+}
+
+function syncAssetPriorityButtons() {
+    const value = document.getElementById('asset-tag-filter')?.value || '';
+    const select = document.getElementById('asset-priority-filter');
+    if (select) select.value = /^优先级:P[1-4]$/.test(value) ? value.slice(-2) : '';
+}
+
+function ensureAssetPriorityControls() {
+    const toolbar = document.querySelector('#page-asset-library .asset-toolbar');
+    const advanced = document.getElementById('asset-advanced-toggle');
+    if (!toolbar || !advanced?.parentNode) return;
+    // The template renders this control. Keep a fallback for pages opened before
+    // the server reloaded its templates, without duplicating controls/listeners.
+    if (!document.getElementById('asset-priority-controls')) {
+        const controls = document.createElement('div');
+        controls.id = 'asset-priority-controls';
+        controls.className = 'asset-priority-advanced-group';
+        const select = document.createElement('select');
+        select.id = 'asset-priority-filter';
+        select.setAttribute('aria-label', '评估优先级');
+        select.title = '评估顺序，不是漏洞严重性；选择优先级会替换标签筛选，其他筛选保持不变。';
+        for (const [tier, text] of [['', '优先级：全部'], ['P1', 'P1 优先评估'], ['P2', 'P2 常规评估'], ['P3', 'P3 低收益候选'], ['P4', 'P4 后置评估']]) {
+            const option = document.createElement('option');
+            option.value = tier; option.textContent = text; select.append(option);
+        }
+        select.addEventListener('change', () => setAssetPriorityFilter(select.value));
+        advanced.parentNode.insertBefore(controls, advanced);
+        controls.append(select, advanced);
+    }
+    syncAssetPriorityButtons();
+    if (document.getElementById('asset-inventory-map')) return;
+    const map = document.createElement('details');
+    map.className = 'asset-inventory-map'; map.id = 'asset-inventory-map';
+    const summary = document.createElement('summary'); summary.textContent = '公司资产地图与覆盖范围';
+    const body = document.createElement('div'); body.id = 'asset-inventory-map-body';
+    map.append(summary, body);
+    map.addEventListener('toggle', () => { if (map.open) loadAssetInventoryMap(); });
+    toolbar.append(map); syncAssetPriorityButtons();
+}
+
+async function loadAssetInventoryMap() {
+    const root = document.getElementById('asset-inventory-map-body');
+    if (!root || root.dataset.loading === 'true') return;
+    root.dataset.loading = 'true'; root.textContent = '正在读取项目资产地图…';
+    try {
+        await ensureAssetProjects(true);
+        const rows = [];
+        let errors = 0;
+        for (const project of assetPageState.projects) {
+            try {
+                const response = await apiFetch('/api/projects/' + encodeURIComponent(project.id) + '/facts?fact_key=asset-map-20260909');
+                if (response.status === 404) continue;
+                if (!response.ok) { errors++; continue; }
+                const fact = await response.json();
+                const data = JSON.parse(fact.body || '{}');
+                if (!data.company || !data.priority_counts) continue;
+                rows.push({ ...data, project_id: project.id });
+            } catch (_) { errors++; }
+        }
+        root.textContent = '';
+        const note = document.createElement('p');
+        note.textContent = '2026-09-09 交叉收纳快照：CSV 部分结果 + Quake 主域名抽样补充。数据源覆盖范围内的资产地图，不是全网穷尽结果。计数为入库时快照，点击公司查看当前资产。' + (errors ? ` 有 ${errors} 个项目读取失败，可重新展开重试。` : '');
+        root.append(note);
+        if (!rows.length) { root.append(document.createTextNode('暂无已生成的资产地图。')); return; }
+        const table = document.createElement('table');
+        table.innerHTML = '<thead><tr><th>公司</th><th>主域名</th><th>域名 / 服务</th><th>FOFA+Quake 双源</th><th>Quake 补充</th><th>P1 / P2 / P3 / P4</th></tr></thead>';
+        const tbody = document.createElement('tbody');
+        for (const row of rows) {
+            const tr = document.createElement('tr'); const td = document.createElement('td');
+            const button = document.createElement('button');button.type = 'button';button.textContent = row.company;
+            button.addEventListener('click', () => {
+                resetAssetFilterValuesForMap(row.project_id);
+                document.getElementById('asset-inventory-map').open = false;
+                loadAssets(1);
+            }); td.append(button); tr.append(td);
+            const values = [(row.roots || []).join(', '), `${Number(row.domains) || 0} / ${Number(row.services) || 0}`, Number(row.both_sources) || 0, Number(row.quake_only) || 0, ['P1','P2','P3','P4'].map(k => Number(row.priority_counts[k]) || 0).join(' / ')];
+            for (const value of values) { const cell = document.createElement('td');cell.textContent = String(value);tr.append(cell); }
+            tbody.append(tr);
+        }
+        table.append(tbody);root.append(table);
+    } catch (_) { root.textContent = '资产地图加载失败，请重新展开重试。'; }
+    finally { root.dataset.loading = 'false'; }
+}
+
+function resetAssetFilterValuesForMap(projectId) {
+    ASSET_FILTER_FIELD_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.value = id === 'asset-sort-filter' ? 'last_seen_at:desc' : id === 'asset-project-filter' ? projectId : '';
+        if (el.tagName === 'SELECT') syncAssetSelect(el);
+    });
+    clearAssetSelection(); syncAssetPriorityButtons();
 }
 
 function editAssetFromDetail() {
@@ -1988,14 +2110,21 @@ window.closeAssetDetail = closeAssetDetail;
 window.editAssetFromDetail = editAssetFromDetail;
 
 document.addEventListener('DOMContentLoaded', () => {
+    ensureAssetPriorityControls();
     ensureAssetOwnershipColumn();
     initAssetCustomSelects();
     renderAssetSavedViews();
     document.addEventListener('click', event => {
+        const map = document.getElementById('asset-inventory-map');
+        if (map?.open && event.target instanceof Node && !map.contains(event.target)) map.open = false;
         const menu = document.getElementById('asset-batch-more');
         if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) closeAssetBatchMenu();
     });
     document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            const map = document.getElementById('asset-inventory-map');
+            if (map?.open) { map.open = false; map.querySelector('summary')?.focus(); }
+        }
         if (event.key === 'Escape') closeAssetBatchMenu();
     });
 });

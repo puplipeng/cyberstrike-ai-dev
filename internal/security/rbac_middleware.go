@@ -91,6 +91,8 @@ func permissionAlternativesForRequest(method, path string) []string {
 func permissionForRequest(method, fullPath string) string {
 	path := strings.TrimPrefix(fullPath, "/api")
 	switch {
+	case strings.HasPrefix(path, "/apk-audit/"):
+		return crudPermission(method, "apk")
 	case path == "/rbac/me":
 		return "auth:self"
 	case path == "/rbac/resources":

@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"cyberstrike-ai/internal/findingpolicy"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -281,5 +284,18 @@ func TestExecuteMCPToolForConversationConcurrentRecordIsolation(t *testing.T) {
 	}
 	if got["conv-a"] != 1 || got["conv-b"] != 1 {
 		t.Fatalf("conversation ids = %#v, want one call for conv-a and conv-b", got)
+	}
+}
+
+func TestCustomSingleAgentPromptIncludesFindingPolicy(t *testing.T) {
+	a := setupTestAgent(t)
+	p := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(p, []byte("custom role"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a.agentConfig.SystemPromptPath = p
+	got := a.EinoSingleAgentSystemInstruction()
+	if !strings.Contains(got, "custom role") || !strings.Contains(got, findingpolicy.Prompt) {
+		t.Fatal("custom prompt omitted finding policy")
 	}
 }

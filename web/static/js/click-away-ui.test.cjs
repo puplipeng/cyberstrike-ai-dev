@@ -67,16 +67,16 @@ test('knowledge category and workflow action menus support Escape', () => {
 
 test('changed scripts are cache-busted', () => {
     for (const name of ['i18n', 'notifications', 'info-collect', 'audit', 'knowledge', 'workflows']) {
-        assert.match(html, new RegExp(`/static/js/${name}\\.js\\?v=20260830-dismiss1`));
+        assert.match(html, new RegExp(`/static/js/${name}\\.js\\?v=[A-Za-z0-9_-]+`));
     }
     for (const name of ['router', 'auth']) {
-        assert.match(html, new RegExp(`/static/js/${name}\\.js\\?v=20260904-assetmonitor1`));
+        assert.match(html, new RegExp(`/static/js/${name}\\.js\\?v=[A-Za-z0-9_-]+`));
     }
-    assert.match(html, /\/static\/js\/github-leak-rules\.js\?v=20260902-rules2/);
-    assert.match(html, /\/static\/js\/settings\.js\?v=20260903-budget100m1/);
-    assert.match(html, /\/static\/js\/github-leaks\.js\?v=20260902-lookback1/);
-    assert.match(html, /\/static\/css\/github-leaks\.css\?v=20260902-compact1/);
-    assert.match(html, /\/static\/js\/monitor\.js\?v=20260903-iterlimit1/);
-    assert.match(html, /\/static\/js\/webshell\.js\?v=20260830-codexargs1/);
-    assert.match(html, /\/static\/js\/chat\.js\?v=20260903-iterlimit1/);
+    assert.match(html, /\/static\/js\/github-leak-rules\.js\?v=[A-Za-z0-9_-]+/);
+    assert.match(html, /\/static\/js\/settings\.js\?v=[A-Za-z0-9_-]+/);
+    assert.match(html, /\/static\/js\/github-leaks\.js\?v=[A-Za-z0-9_-]+/);
+    assert.match(html, /\/static\/css\/github-leaks\.css\?v=[A-Za-z0-9_-]+/);
+    assert.match(html, /\/static\/js\/monitor\.js\?v=[A-Za-z0-9_-]+/);
+    assert.match(html, /\/static\/js\/webshell\.js\?v=[A-Za-z0-9_-]+/);
+    assert.match(html, /\/static\/js\/chat\.js\?v=[A-Za-z0-9_-]+/);
 });

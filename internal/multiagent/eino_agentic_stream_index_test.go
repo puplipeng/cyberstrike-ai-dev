@@ -188,7 +188,7 @@ func TestAgenticStreamIndexRepairKeepsManyAnonymousFragmentsInOneToolCall(t *tes
 }
 
 func TestAgenticStreamIndexRepairRejectsCompleteCallFloodAtLimit(t *testing.T) {
-	const duplicateCount = 513
+	const duplicateCount = maxAgenticFunctionToolCallsPerResponse + 1
 	const sourceIndex = 0
 	const arguments = `{"query":"get_asset list_vulnerabilities"}`
 
@@ -338,16 +338,78 @@ func TestAgenticStreamIndexRepairChecksArgumentByteLimitBeforeRegisteringCall(t 
 
 func TestAgenticStreamIndexRepairRejectsExcessiveEmptyToolBlocks(t *testing.T) {
 	state := newAgenticStreamIndexRepairState()
-	for i := 0; i < maxAgenticFunctionToolBlocksPerResponse; i++ {
+	for i := 0; i < maxAgenticEmptyToolBlocksInSequence; i++ {
 		if _, err := state.repairMessage(agenticToolCallChunk(0, "call_stream", "tool_search", "")); err != nil {
 			t.Fatalf("block %d unexpectedly rejected: %v", i+1, err)
 		}
 	}
 
 	_, err := state.repairMessage(agenticToolCallChunk(0, "call_stream", "tool_search", ""))
-	if err == nil || !strings.Contains(err.Error(), "tool-call blocks") {
+	if err == nil || !strings.Contains(err.Error(), "consecutive empty function tool-call blocks") {
 		t.Fatalf("block-limit error = %v", err)
 	}
+}
+
+func TestAgenticStreamIndexRepairAcceptsLongFragmentedArguments(t *testing.T) {
+	base := &agenticStreamIndexFakeModel{chunks: []*schema.AgenticMessage{
+		agenticToolCallChunk(0, "long_call", "tool_search", `{"query":"`),
+	}}
+	const fragments = 12000
+	for i := 0; i < fragments; i++ {
+		base.chunks = append(base.chunks, agenticToolCallChunk(0, "", "", "x"))
+	}
+	base.chunks = append(base.chunks, agenticToolCallChunk(0, "", "", `"}`))
+	merged, err := schema.ConcatAgenticMessages(readAgenticStreamChunks(t, newAgenticStreamIndexRepairModel(base)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged.ContentBlocks) != 1 || merged.ContentBlocks[0].FunctionToolCall.Arguments != `{"query":"`+strings.Repeat("x", fragments)+`"}` {
+		t.Fatal("fragmented tool arguments were lost or split")
+	}
+}
+
+func TestAgenticStreamIndexRepairLargeResponseBudgets(t *testing.T) {
+	t.Run("logical calls", func(t *testing.T) {
+		state := newAgenticStreamIndexRepairState()
+		for i := 0; i < maxAgenticFunctionToolCallsPerResponse; i++ {
+			if _, err := state.repairMessage(agenticToolCallChunk(i, fmt.Sprintf("many_%d", i), "tool_search", `{}`)); err != nil {
+				t.Fatal(i, err)
+			}
+		}
+		if _, err := state.repairMessage(agenticToolCallChunk(1024, "excess", "tool_search", `{}`)); err == nil || !strings.Contains(err.Error(), "distinct function tool calls") {
+			t.Fatal(err)
+		}
+	})
+	t.Run("fragment boundary", func(t *testing.T) {
+		state := newAgenticStreamIndexRepairState()
+		state.toolBlockCount = maxAgenticFunctionToolBlocksPerResponse - 1
+		if err := state.accountFunctionToolBlock(&schema.FunctionToolCall{Arguments: "x"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.accountFunctionToolBlock(&schema.FunctionToolCall{Arguments: "x"}); err == nil {
+			t.Fatal("fragment budget not enforced")
+		}
+	})
+	t.Run("progress resets empty guard", func(t *testing.T) {
+		state := newAgenticStreamIndexRepairState()
+		state.emptyToolBlockRun = maxAgenticEmptyToolBlocksInSequence
+		if err := state.accountFunctionToolBlock(&schema.FunctionToolCall{Arguments: "x"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.accountFunctionToolBlock(&schema.FunctionToolCall{}); err != nil {
+			t.Fatal(err)
+		}
+		if state.emptyToolBlockRun != 1 {
+			t.Fatal(state.emptyToolBlockRun)
+		}
+	})
+	t.Run("large valid arguments", func(t *testing.T) {
+		state := newAgenticStreamIndexRepairState()
+		payload := `{"query":"` + strings.Repeat("x", 2<<20) + `"}`
+		if _, err := state.repairMessage(agenticToolCallChunk(0, "large", "tool_search", payload)); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestAgenticStreamIndexRepairPromotesAnonymousCallWhenIDArrivesLate(t *testing.T) {

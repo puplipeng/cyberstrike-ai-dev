@@ -53,10 +53,28 @@
 .ghl-settings-rules-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .ghl-settings-rules-header>div{display:flex;flex-direction:column;gap:4px}
 .ghl-settings-rules{display:grid;gap:12px}
+.ghl-settings-rules-header>div{flex:1;min-width:0}
+.ghl-settings-rules-toggle{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;width:100%;padding:8px 4px;border:0;border-radius:6px;background:transparent;color:var(--text-primary);font:inherit;text-align:left;cursor:pointer}
+.ghl-settings-rules-toggle:hover{background:var(--bg-tertiary)}
+.ghl-settings-rules-toggle:focus-visible{outline:2px solid var(--accent-color);outline-offset:2px}
+.ghl-settings-rules-count{font-size:12px;color:var(--text-secondary)}
+.ghl-settings-rules-toggle-label{margin-left:auto;font-size:12px;color:var(--accent-color);white-space:nowrap}
+.ghl-settings-rules-collapsible{max-height:min(55vh,520px);overflow-y:auto;scrollbar-gutter:stable;padding:2px 6px 2px 2px}
+.ghl-settings-rules-collapsible[hidden]{display:none}
 .ghl-settings-rules-empty{margin:2px 0;text-align:center}
-.ghl-settings-rule-card{display:grid;grid-template-columns:minmax(180px,.72fr) minmax(280px,1.28fr);gap:12px 16px;padding:14px;border:1px solid var(--border-color);border-radius:9px;background:var(--bg-primary)}
-.ghl-settings-rule-card-header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid var(--border-color)}
-.ghl-settings-rule-number{color:var(--text-primary);font-size:13px}
+.ghl-settings-rules-empty[hidden]{display:none}
+.ghl-settings-rule-card{display:block;min-width:0;border:1px solid var(--border-color);border-radius:9px;background:var(--bg-primary)}
+.ghl-settings-rule-card-header{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px;cursor:pointer;list-style:none;border-radius:9px;user-select:none}
+.ghl-settings-rule-card-header::-webkit-details-marker{display:none}
+.ghl-settings-rule-card-header:hover{background:var(--bg-tertiary)}
+.ghl-settings-rule-card-header:focus-visible{outline:2px solid var(--accent-color);outline-offset:-2px}
+.ghl-settings-rule-number{flex:1;min-width:120px;overflow-wrap:anywhere;color:var(--text-primary);font-size:13px}
+.ghl-settings-rule-summary-state{font-size:12px;color:var(--text-secondary)}
+.ghl-settings-rule-expand,.ghl-settings-rule-collapse{font-size:12px;color:var(--accent-color);white-space:nowrap}
+.ghl-settings-rule-card:not([open]) .ghl-settings-rule-collapse,.ghl-settings-rule-card[open] .ghl-settings-rule-expand{display:none}
+.ghl-settings-rule-body{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr);gap:12px 16px;padding:14px;border-top:1px solid var(--border-color)}
+.ghl-settings-rule-body .form-group{min-width:0}
+.ghl-settings-rule-body>.ghl-settings-rule-card-actions{grid-column:1/-1;justify-content:space-between}
 .ghl-settings-rule-card-actions,.ghl-settings-rule-enabled{display:flex;align-items:center;gap:10px}
 .ghl-settings-rule-enabled{cursor:pointer;color:var(--text-secondary);font-size:13px}
 .ghl-settings-rule-enabled input{width:16px;height:16px;margin:0;accent-color:var(--accent-color)}
@@ -86,4 +104,4 @@
 #github-leaks-content .ghl-rule-state.is-partial,#github-leaks-content .ghl-rule-state.is-incomplete,#github-leaks-content .ghl-rule-state.is-truncated{color:var(--warning-color,#d97706)}
 #github-leaks-content .ghl-rule-state.is-idle{color:var(--text-secondary)}
 #github-leaks-content .ghl-rule-state.is-error{color:var(--error-color,#dc2626)}
-@media(max-width:760px){.ghl-settings-rules-header,.ghl-settings-rule-card-header{align-items:stretch;flex-direction:column}.ghl-settings-rule-card{grid-template-columns:1fr}.ghl-settings-rule-card-header{grid-column:auto}.ghl-settings-rule-card-actions{justify-content:space-between}#github-leaks-content .ghl-runtime-rule{grid-template-columns:1fr}}
+@media(max-width:760px){.ghl-settings-rules-header{align-items:stretch;flex-direction:column}.ghl-settings-rule-body{grid-template-columns:1fr}.ghl-settings-rule-card-actions{justify-content:space-between}#github-leaks-content .ghl-runtime-rule{grid-template-columns:1fr}}

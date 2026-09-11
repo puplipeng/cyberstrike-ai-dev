@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	// A model turn should never need hundreds of distinct client tool calls.
-	// Keep the bound high enough for legitimate parallel work while preventing
-	// malformed compatible-provider streams from fanning out without limit.
-	maxAgenticFunctionToolCallsPerResponse  = 64
-	maxAgenticFunctionToolBlocksPerResponse = 4096
-	maxAgenticToolArgumentBytesPerResponse  = 1 << 20
+	// Per-response transport budgets, independent of task iteration limits.
+	// A single tool call can contain thousands of small provider deltas.
+	maxAgenticFunctionToolCallsPerResponse  = 1024
+	maxAgenticFunctionToolBlocksPerResponse = 262144
+	maxAgenticEmptyToolBlocksInSequence     = 4096
+	maxAgenticToolArgumentBytesPerResponse  = 16 << 20
 	maxAgenticToolCallIDBytes               = 1024
 	maxAgenticToolNameBytes                 = 256
 )
@@ -85,6 +85,7 @@ type agenticStreamIndexRepairState struct {
 	anonymousSequence  int
 	toolCallCount      int
 	toolBlockCount     int
+	emptyToolBlockRun  int
 	toolArgumentBytes  int
 }
 
@@ -185,7 +186,9 @@ func (s *agenticStreamIndexRepairState) accountFunctionToolBlock(toolCall *schem
 	if s.toolBlockCount >= maxAgenticFunctionToolBlocksPerResponse {
 		return fmt.Errorf("agentic provider stream exceeded %d function tool-call blocks in one response", maxAgenticFunctionToolBlocksPerResponse)
 	}
-	s.toolBlockCount++
+	if toolCall.Arguments == "" && s.emptyToolBlockRun >= maxAgenticEmptyToolBlocksInSequence {
+		return fmt.Errorf("agentic provider stream exceeded %d consecutive empty function tool-call blocks without argument progress", maxAgenticEmptyToolBlocksInSequence)
+	}
 	if len(toolCall.CallID) > maxAgenticToolCallIDBytes {
 		return fmt.Errorf("agentic provider stream function tool call ID exceeded %d bytes", maxAgenticToolCallIDBytes)
 	}
@@ -197,6 +200,12 @@ func (s *agenticStreamIndexRepairState) accountFunctionToolBlock(toolCall *schem
 		return fmt.Errorf("agentic provider stream exceeded %d bytes of function tool arguments in one response", maxAgenticToolArgumentBytesPerResponse)
 	}
 	s.toolArgumentBytes += len(fragment)
+	s.toolBlockCount++
+	if fragment == "" {
+		s.emptyToolBlockRun++
+	} else {
+		s.emptyToolBlockRun = 0
+	}
 	return nil
 }
 

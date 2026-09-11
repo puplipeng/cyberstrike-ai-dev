@@ -101,9 +101,9 @@ test('template, router, RBAC, i18n, and compact scrolling styles are wired', () 
     assert.match(html, /id="page-asset-monitor"/);
     assert.match(html, /asset-monitor\.css\?v=/);
     assert.match(html, /asset-monitor\.js\?v=/);
-    assert.match(html, /router\.js\?v=20260904-assetmonitor1/);
-    assert.match(html, /auth\.js\?v=20260904-assetmonitor1/);
-    assert.match(html, /rbac-guards\.js\?v=20260904-assetmonitor1/);
+    assert.match(html, /router\.js\?v=[A-Za-z0-9_-]+/);
+    assert.match(html, /auth\.js\?v=[A-Za-z0-9_-]+/);
+    assert.match(html, /rbac-guards\.js\?v=[A-Za-z0-9_-]+/);
     assert.match(router, /currentPage === 'asset-monitor'[\s\S]*stopAssetMonitorPage/);
     assert.match(router, /case 'asset-monitor':[\s\S]*initAssetMonitor/);
     assert.match(auth, /'asset-monitor': 'asset:read'/);

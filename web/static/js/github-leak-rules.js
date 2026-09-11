@@ -157,8 +157,12 @@ const GitHubLeakRules = (() => {
         const container = options && options.container;
         const addButton = options && options.addButton;
         const errorOutput = options && options.errorOutput;
+        const toggleMount = options && options.toggleMount;
         if (!container || !addButton) return null;
         const doc = container.ownerDocument || document;
+        let toggleButton = null;
+        let countLabel = null;
+        let toggleLabel = null;
 
         function make(tag, className, text) {
             const node = doc.createElement(tag);
@@ -169,6 +173,40 @@ const GitHubLeakRules = (() => {
 
         function fieldError(card, field) {
             return card.querySelector(`[data-ghl-rule-error="${field}"]`);
+        }
+
+        function setExpanded(expanded) {
+            if (!toggleButton) return;
+            container.hidden = !expanded;
+            toggleButton.setAttribute('aria-expanded', String(expanded));
+            toggleLabel.textContent = expanded ? '收起规则 ▴' : '展开规则 ▾';
+        }
+
+        if (toggleMount) {
+            const hint = toggleMount.querySelector('.form-hint');
+            toggleButton = make('button', 'ghl-settings-rules-toggle');
+            toggleButton.type = 'button';
+            toggleButton.setAttribute('aria-controls', container.id);
+            countLabel = make('span', 'ghl-settings-rules-count');
+            toggleLabel = make('span', 'ghl-settings-rules-toggle-label');
+            toggleButton.append(make('strong', '', '监控规则'), countLabel, toggleLabel);
+            toggleMount.replaceChildren(toggleButton);
+            if (hint) toggleMount.appendChild(hint);
+            container.classList.add('ghl-settings-rules-collapsible');
+            toggleButton.addEventListener('click', () => setExpanded(container.hidden));
+            container.addEventListener('keydown', event => {
+                if (event.key !== 'Escape') return;
+                event.preventDefault();
+                const card = event.target.closest && event.target.closest('[data-ghl-rule-card]');
+                if (card && card.open) {
+                    card.open = false;
+                    card.querySelector('summary')?.focus();
+                    return;
+                }
+                setExpanded(false);
+                toggleButton.focus();
+            });
+            setExpanded(false);
         }
 
         function updatePreview(card) {
@@ -182,13 +220,28 @@ const GitHubLeakRules = (() => {
             return rule;
         }
 
+        function updateCardSummary(card) {
+            const name = card.querySelector('[data-ghl-rule-name]')?.value.trim() || '未命名规则';
+            const enabled = card.querySelector('[data-ghl-rule-enabled]')?.checked === true;
+            const terms = rawKeywords(card.querySelector('[data-ghl-rule-keywords]')?.value || '');
+            card.querySelector('.ghl-settings-rule-number').textContent = `规则 ${Number(card.dataset.ghlRuleIndex) + 1} · ${name}`;
+            card.querySelector('.ghl-settings-rule-summary-state').textContent = `${enabled ? '已启用' : '已停用'} · ${terms.length} 个词`;
+        }
+
         function createCard(rule, index) {
             const value = rule && typeof rule === 'object' ? rule : {};
-            const card = make('article', 'ghl-settings-rule-card');
+            const card = make('details', 'ghl-settings-rule-card');
             card.dataset.ghlRuleCard = '1';
+            card.dataset.ghlRuleIndex = String(index);
+            card.open = false;
 
-            const header = make('div', 'ghl-settings-rule-card-header');
+            const header = make('summary', 'ghl-settings-rule-card-header');
             const title = make('strong', 'ghl-settings-rule-number', `规则 ${index + 1}`);
+            const summaryState = make('span', 'ghl-settings-rule-summary-state');
+            const expandLabel = make('span', 'ghl-settings-rule-expand', '展开编辑 ▾');
+            const collapseLabel = make('span', 'ghl-settings-rule-collapse', '收起 ▴');
+            header.append(title, summaryState, expandLabel, collapseLabel);
+            const body = make('div', 'ghl-settings-rule-body');
             const actions = make('div', 'ghl-settings-rule-card-actions');
             const enabledLabel = make('label', 'ghl-settings-rule-enabled');
             const enabled = doc.createElement('input');
@@ -200,7 +253,6 @@ const GitHubLeakRules = (() => {
             remove.type = 'button';
             remove.dataset.ghlRuleRemove = '1';
             actions.append(enabledLabel, remove);
-            header.append(title, actions);
 
             const nameGroup = make('div', 'form-group ghl-settings-rule-name');
             const nameLabel = make('label', '', '规则名称');
@@ -235,8 +287,10 @@ const GitHubLeakRules = (() => {
             keywordsError.dataset.ghlRuleError = 'keywords';
             keywordsGroup.append(keywordsLabel, keywords, hint, preview, keywordsError);
 
-            card.append(header, nameGroup, keywordsGroup);
+            body.append(actions, nameGroup, keywordsGroup);
+            card.append(header, body);
             updatePreview(card);
+            updateCardSummary(card);
             return card;
         }
 
@@ -253,18 +307,27 @@ const GitHubLeakRules = (() => {
         }
 
         function updateEmptyState() {
+            const list = cards();
             const empty = container.querySelector('[data-ghl-rules-empty]');
-            if (empty) empty.hidden = cards().length > 0;
-            addButton.disabled = cards().length >= MAX_RULES;
+            if (empty) empty.hidden = list.length > 0;
+            addButton.disabled = list.length >= MAX_RULES;
+            if (countLabel) {
+                const enabled = list.filter(card => card.querySelector('[data-ghl-rule-enabled]')?.checked === true).length;
+                countLabel.textContent = `${list.length} 条 · ${enabled} 条启用`;
+            }
         }
 
-        function render(rows) {
+        function render(rows, expanded = []) {
             const safeRows = Array.isArray(rows) ? rows.slice(0, MAX_RULES) : [];
             const fragment = doc.createDocumentFragment();
             const empty = make('p', 'form-hint ghl-settings-rules-empty', '尚未配置规则。点击“新增规则”开始配置。');
             empty.dataset.ghlRulesEmpty = '1';
             fragment.appendChild(empty);
-            safeRows.forEach((row, index) => fragment.appendChild(createCard(row, index)));
+            safeRows.forEach((row, index) => {
+                const card = createCard(row, index);
+                card.open = expanded.includes(index);
+                fragment.appendChild(card);
+            });
             container.replaceChildren(fragment);
             if (errorOutput) errorOutput.textContent = '';
             updateEmptyState();
@@ -274,6 +337,7 @@ const GitHubLeakRules = (() => {
             const result = validateRules(readRaw());
             cards().forEach((card, index) => {
                 const rowError = result.errors[index] || { name: '', keywords: '' };
+                if (rowError.name || rowError.keywords) card.open = true;
                 const name = card.querySelector('[data-ghl-rule-name]');
                 const keywords = card.querySelector('[data-ghl-rule-keywords]');
                 if (name) name.classList.toggle('error', !!rowError.name);
@@ -285,6 +349,11 @@ const GitHubLeakRules = (() => {
                 updatePreview(card);
             });
             if (errorOutput) errorOutput.textContent = result.globalErrors.join('；');
+            if (!result.valid) {
+                setExpanded(true);
+                const invalid = container.querySelector('input.error, textarea.error');
+                if (invalid && typeof invalid.focus === 'function') invalid.focus();
+            }
             return result;
         }
 
@@ -295,7 +364,9 @@ const GitHubLeakRules = (() => {
                 return false;
             }
             rows.push(rule && typeof rule === 'object' ? rule : { name: '', enabled: true, keywords: [] });
-            render(rows);
+            const expanded = cards().flatMap((card, index) => card.open ? [index] : []);
+            render(rows, [...expanded, rows.length - 1]);
+            setExpanded(true);
             const list = cards();
             const input = list[list.length - 1]?.querySelector('[data-ghl-rule-name]');
             if (input && typeof input.focus === 'function') input.focus();
@@ -309,18 +380,25 @@ const GitHubLeakRules = (() => {
             const card = button.closest('[data-ghl-rule-card]');
             const rows = readRaw();
             const index = cards().indexOf(card);
+            const expanded = cards().filter((_, i) => i !== index).flatMap((item, i) => item.open ? [i] : []);
             if (index >= 0) rows.splice(index, 1);
-            render(rows);
+            render(rows, expanded);
         });
         container.addEventListener('input', event => {
             const card = event.target.closest && event.target.closest('[data-ghl-rule-card]');
             if (!card) return;
             event.target.classList.remove('error');
             if (event.target.matches('[data-ghl-rule-keywords]')) updatePreview(card);
+            updateCardSummary(card);
             const field = event.target.matches('[data-ghl-rule-name]') ? 'name' : 'keywords';
             const output = fieldError(card, field);
             if (output) output.textContent = '';
             if (errorOutput) errorOutput.textContent = '';
+        });
+        container.addEventListener('change', event => {
+            const card = event.target.closest && event.target.closest('[data-ghl-rule-card]');
+            if (card) updateCardSummary(card);
+            updateEmptyState();
         });
 
         render([]);

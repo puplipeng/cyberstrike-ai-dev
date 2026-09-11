@@ -42,6 +42,7 @@ function ensureGitHubLeakRulesEditor() {
         container: document.getElementById('github-leak-rules'),
         addButton: document.getElementById('github-leak-rule-add'),
         errorOutput: document.getElementById('github-leak-rules-error'),
+        toggleMount: document.querySelector('.ghl-settings-rules-header > div'),
     });
     return githubLeakRulesEditor;
 }

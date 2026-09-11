@@ -2598,6 +2598,7 @@ const projectPickerPanelState = {
 let chatProjectFolderSearchQuery = '';
 let chatProjectFolderRenderSeq = 0;
 let chatProjectFolderContextLoadSeq = 0;
+let chatProjectFolderContextPromise = null;
 const CHAT_PROJECT_FOLDER_PAGE_SIZE = 6;
 let chatProjectFolderVisibleCount = CHAT_PROJECT_FOLDER_PAGE_SIZE;
 let chatProjectFolderLastQuery = '';
@@ -3430,7 +3431,16 @@ function selectChatProjectConversationItem(conversationId) {
 
 window.selectChatProjectConversationItem = selectChatProjectConversationItem;
 
-async function loadChatProjectFolderContext() {
+function loadChatProjectFolderContext(force = false) {
+    if (!force && chatProjectFolderContextPromise) return chatProjectFolderContextPromise;
+    const pending = fetchChatProjectFolderContext().finally(() => {
+        if (chatProjectFolderContextPromise === pending) chatProjectFolderContextPromise = null;
+    });
+    chatProjectFolderContextPromise = pending;
+    return pending;
+}
+
+async function fetchChatProjectFolderContext() {
     const loadSeq = ++chatProjectFolderContextLoadSeq;
     const conversationsParams = new URLSearchParams({ limit: '1000', offset: '0', sort_by: 'updated_at' });
     const [conversationResponse, activeResponse, completedResponse, pendingResponse] = await Promise.all([
@@ -3530,7 +3540,7 @@ function removeChatProjectConversation(conversationId) {
 }
 
 function refreshChatProjectFoldersAfterAction() {
-    Promise.resolve().then(() => refreshChatProjectFolders()).catch((error) => {
+    Promise.resolve().then(() => refreshChatProjectFolders({ forceContext: true })).catch((error) => {
         console.warn('刷新项目对话列表失败:', error);
     });
 }
@@ -3636,7 +3646,7 @@ function renderChatProjectFolders(projects) {
     appendChatProjectFoldersLoadMore(list, folders.length - visibleFolders.length);
 }
 
-async function refreshChatProjectFolders() {
+async function refreshChatProjectFolders(options = {}) {
     const list = document.getElementById('project-folders-list');
     if (!list) return;
     const seq = ++chatProjectFolderRenderSeq;
@@ -3645,12 +3655,20 @@ async function refreshChatProjectFolders() {
         appendChatProjectPanelMessage(list, 'project-folders-empty', pickerMessage(tp, 'common.loading', '加载中…'));
     }
     try {
-        const [projects] = await Promise.all([
-            ensureProjectsLoaded(),
-            loadChatProjectFolderContext(),
-        ]);
+        // Project names must not wait for conversation history or status badges.
+        // Attach a rejection handler immediately, even if the project request fails.
+        const contextResult = loadChatProjectFolderContext(!!options.forceContext)
+            .then(() => ({ ok: true }), (error) => ({ ok: false, error }));
+        const projects = await ensureProjectsLoaded();
         if (seq !== chatProjectFolderRenderSeq) return;
         renderChatProjectFolders(projects);
+        const context = await contextResult;
+        if (seq !== chatProjectFolderRenderSeq) return;
+        if (context.ok) {
+            renderChatProjectFolders(projects);
+        } else {
+            appendChatProjectPanelMessage(list, 'project-folders-empty', '项目已加载，对话状态暂时未更新，请稍后重试');
+        }
     } catch (e) {
         if (seq !== chatProjectFolderRenderSeq) return;
         list.innerHTML = '';

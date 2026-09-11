@@ -373,6 +373,7 @@ const PAGE_PERMISSION_MAP = {
     assets: 'asset:read',
     'asset-overview': 'asset:read',
     'asset-library': 'asset:read',
+    'apk-audit': 'apk:read',
     'asset-monitor': 'asset:read',
     tasks: 'tasks:read',
     workflows: 'workflow:read',

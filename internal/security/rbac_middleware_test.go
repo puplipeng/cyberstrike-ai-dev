@@ -10,6 +10,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func TestAPKRoutePermissions(t *testing.T) {
+	for _, tc := range []struct{ method, path, want string }{
+		{"GET", "/api/apk-audit/status", "apk:read"},
+		{"GET", "/api/apk-audit/cases/:id", "apk:read"},
+		{"POST", "/api/apk-audit/cases", "apk:write"},
+		{"POST", "/api/apk-audit/cases/:id/actions", "apk:write"},
+		{"POST", "/api/apk-audit/cases/:id/cancel", "apk:write"},
+	} {
+		if got := permissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Fatalf("%s %s: %s", tc.method, tc.path, got)
+		}
+	}
+}
+
 func TestSSHRoutePermissions(t *testing.T) {
 	for _, tc := range []struct{ method, path, want string }{
 		{"GET", "/api/ssh/connections", "webshell:read"},
